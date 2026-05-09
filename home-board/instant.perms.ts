@@ -3,22 +3,67 @@
 import type { InstantRules } from "@instantdb/react-native";
 
 const rules = {
-  /**
-   * Welcome to Instant's permission system!
-   * Right now your rules are empty. To start filling them in, check out the docs:
-   * https://www.instantdb.com/docs/permissions
-   *
-   * Here's an example to give you a feel:
-   * posts: {
-   *   allow: {
-   *     view: "true",
-   *     create: "isOwner",
-   *     update: "isOwner",
-   *     delete: "isOwner",
-   *   },
-   *   bind: ["isOwner", "auth.id != null && auth.id == data.ownerId"],
-   * },
-   */
+  $files: {
+    allow: {
+      view: "true",
+      create: "auth.id != null && data.path.startsWith('boards/')",
+    },
+  },
+  $users: {
+    allow: {
+      view: "true",
+      update: "auth.id == data.id",
+    },
+    fields: {
+      email: "auth.id == data.id",
+    },
+  },
+  boards: {
+    allow: {
+      view: "true",
+      create: "auth.id != null",
+      update: "auth.id != null && auth.id in data.ref('creator.id')",
+      delete: "auth.id != null && auth.id in data.ref('creator.id')",
+    },
+  },
+  routes: {
+    allow: {
+      view: "true",
+      create: "auth.id != null",
+      update: "auth.id != null && auth.id in data.ref('creator.id')",
+      delete: "auth.id != null && auth.id in data.ref('creator.id')",
+    },
+  },
+  ascents: {
+    allow: {
+      view: "true",
+      create: "auth.id != null",
+      delete: "auth.id != null && auth.id in data.ref('user.id')",
+    },
+  },
+  likes: {
+    allow: {
+      view: "true",
+      create: "auth.id != null",
+      delete: "auth.id != null && auth.id in data.ref('user.id')",
+    },
+  },
+  comments: {
+    allow: {
+      view: "true",
+      create: "auth.id != null",
+      update: "auth.id != null && auth.id in data.ref('user.id')",
+      delete: "auth.id != null && auth.id in data.ref('user.id')",
+    },
+  },
+  playlists: {
+    allow: {
+      view: "auth.id != null && auth.id in data.ref('creator.id')",
+      create: "auth.id != null",
+      update: "auth.id != null && auth.id in data.ref('creator.id')",
+      delete: "auth.id != null && auth.id in data.ref('creator.id')",
+    },
+  },
 } satisfies InstantRules;
 
 export default rules;

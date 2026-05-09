@@ -1,37 +1,61 @@
-import {
-  DarkTheme,
-  DefaultTheme,
-  ThemeProvider,
-} from "@react-navigation/native";
 import "../global.css";
+import LoginScreen from "@/components/LoginScreen";
+import { db } from "@/lib/db";
 import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import "react-native-reanimated";
-
-import { useColorScheme } from "@/hooks/useColorScheme";
+import { ActivityIndicator, View } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
   const [loaded] = useFonts({
     SpaceMono: require("../assets/fonts/SpaceMono-Regular.ttf"),
   });
 
-  if (!loaded) {
-    // Async font loading only occurs in development.
-    return null;
+  const { isLoading, user } = db.useAuth();
+
+  if (!loaded || isLoading) {
+    return (
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <View className="flex-1 items-center justify-center bg-white">
+          <ActivityIndicator size="large" color="#6366f1" />
+        </View>
+      </GestureHandlerRootView>
+    );
+  }
+
+  if (!user) {
+    return (
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <LoginScreen />
+        <StatusBar style="auto" />
+      </GestureHandlerRootView>
+    );
   }
 
   return (
-    <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
+    <GestureHandlerRootView style={{ flex: 1 }}>
       <Stack>
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen
-          name="index"
-          options={{ headerShown: true, headerTitle: "home-board" }}
+          name="route/[id]"
+          options={{
+            headerTitle: "",
+            headerTransparent: true,
+            headerTintColor: "#fff",
+            headerBackTitle: "Routes",
+          }}
         />
-        <Stack.Screen name="+not-found" />
+        <Stack.Screen
+          name="playlist/[id]"
+          options={{ headerTitle: "Playlist" }}
+        />
+        <Stack.Screen
+          name="create-route"
+          options={{ headerTitle: "New Route", presentation: "modal" }}
+        />
       </Stack>
       <StatusBar style="auto" />
-    </ThemeProvider>
+    </GestureHandlerRootView>
   );
 }
