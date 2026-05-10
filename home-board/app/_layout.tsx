@@ -39,12 +39,7 @@ export default function RootLayout() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen
           name="route/[id]"
-          options={{
-            headerTitle: "",
-            headerTransparent: true,
-            headerTintColor: "#fff",
-            headerBackTitle: "Routes",
-          }}
+          options={{ headerShown: false }}
         />
         <Stack.Screen
           name="playlist/[id]"
@@ -52,7 +47,12 @@ export default function RootLayout() {
         />
         <Stack.Screen
           name="create-route"
-          options={{ headerTitle: "New Route", presentation: "modal" }}
+          options={{
+            headerTitle: "New route",
+            presentation: "modal",
+            headerTransparent: true,
+            headerTintColor: "#fff",
+          }}
         />
       </Stack>
       <StatusBar style="auto" />

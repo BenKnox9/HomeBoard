@@ -1,46 +1,198 @@
-import HoldOverlay, { Hold } from "@/components/HoldOverlay";
+import {
+  ContainArea,
+  Hold,
+  HOLD_COLORS,
+  HOLD_SIZE,
+  colorWithAlpha,
+} from "@/components/HoldOverlay";
 import { db } from "@/lib/db";
 import { gradeBadgeColor } from "@/lib/grades";
 import { id } from "@instantdb/react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { useState } from "react";
+import { Image } from "expo-image";
+import { router, useLocalSearchParams } from "expo-router";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
+  Dimensions,
   KeyboardAvoidingView,
   Modal,
   Platform,
-  Pressable,
   ScrollView,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+const SCREEN_WIDTH = Dimensions.get("window").width;
+const SLIDE_MS = 220;
+
+// ── Small helpers ────────────────────────────────────────────────────────────
+
+function parseHolds(raw: string | undefined): Hold[] {
+  try {
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function RouteInfoBar({
+  route,
+  userId,
+}: {
+  route: any;
+  userId: string | undefined;
+}) {
+  const myAscents = (route.ascents ?? []).filter(
+    (a: any) => a.user?.id === userId
+  );
+  const hasAscended = myAscents.length > 0;
+  const badgeColor = gradeBadgeColor(route.grade);
+
+  return (
+    <View style={styles.infoBar}>
+      <View style={[styles.gradeBadge, { backgroundColor: badgeColor }]}>
+        <Text style={styles.gradeText}>{route.grade}</Text>
+      </View>
+      <Text style={styles.routeName} numberOfLines={1}>
+        {route.name}
+      </Text>
+      {hasAscended && (
+        <Ionicons
+          name="checkmark-circle"
+          size={20}
+          color="#22c55e"
+          style={{ marginLeft: 8 }}
+        />
+      )}
+    </View>
+  );
+}
+
+function StatCell({
+  label,
+  value,
+  small,
+}: {
+  label: string;
+  value: string;
+  small?: boolean;
+}) {
+  return (
+    <View style={{ flex: 1, alignItems: "center" }}>
+      <Text
+        style={{
+          fontSize: small ? 13 : 22,
+          fontWeight: "700",
+          color: "#6366f1",
+          textAlign: "center",
+        }}
+      >
+        {value}
+      </Text>
+      <Text style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+// ── Screen ────────────────────────────────────────────────────────────────────
 
 export default function RouteDetailScreen() {
-  const { id: routeId } = useLocalSearchParams<{ id: string }>();
-  const router = useRouter();
+  const { id: routeId, routeIds: routeIdsParam } =
+    useLocalSearchParams<{ id: string; routeIds?: string }>();
+  const insets = useSafeAreaInsets();
   const { user } = db.useAuth();
+
+  const routeIds: string[] = (() => {
+    const raw = Array.isArray(routeIdsParam) ? routeIdsParam[0] : routeIdsParam;
+    try {
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  })();
+
+  const [displayedId, setDisplayedId] = useState(routeId ?? "");
+  const displayedIndex = routeIds.indexOf(displayedId);
+  const prevId = displayedIndex > 0 ? routeIds[displayedIndex - 1] : null;
+  const nextId =
+    displayedIndex >= 0 && displayedIndex < routeIds.length - 1
+      ? routeIds[displayedIndex + 1]
+      : null;
+
   const [falls, setFalls] = useState(0);
   const [logging, setLogging] = useState(false);
+  const [showInfo, setShowInfo] = useState(false);
   const [showPlaylistModal, setShowPlaylistModal] = useState(false);
-  const [showPhotoModal, setShowPhotoModal] = useState(false);
   const [commentText, setCommentText] = useState("");
   const [submittingComment, setSubmittingComment] = useState(false);
 
+  // Track photo container layout + natural image size to position hold dots
+  const [photoLayout, setPhotoLayout] = useState({ width: 1, height: 1 });
+  const [naturalSize, setNaturalSize] = useState({ width: 1, height: 1 });
+
+  // Transition state — two independent layers slide out/in so there's no reset flash
+  const [outgoingRouteId, setOutgoingRouteId] = useState<string | null>(null);
+  const [incomingRouteId, setIncomingRouteId] = useState<string | null>(null);
+  const isTransitioning = incomingRouteId !== null;
+
+  // Each layer gets its own translateX so they never need a shared reset
+  const outgoingX = useSharedValue(0);
+  const incomingX = useSharedValue(SCREEN_WIDTH);
+  const outgoingStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: outgoingX.value }],
+  }));
+  const incomingStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: incomingX.value }],
+  }));
+
+  // Zoom/pan for the static board photo
+  const scale = useSharedValue(1);
+  const savedScale = useSharedValue(1);
+  const translateX = useSharedValue(0);
+  const translateY = useSharedValue(0);
+  const savedTX = useSharedValue(0);
+  const savedTY = useSharedValue(0);
+
+  const zoomStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: translateX.value },
+      { translateY: translateY.value },
+      { scale: scale.value },
+    ],
+  }));
+
+  // Container dimensions in shared values so pan/pinch worklets can clamp
+  const containerW = useSharedValue(SCREEN_WIDTH);
+  const containerH = useSharedValue(700);
+
+  // Query prev + current + next simultaneously so adjacent holds are ready
+  const queryIds = [
+    ...new Set([prevId, displayedId, nextId].filter(Boolean)),
+  ] as string[];
+
   const { isLoading, error, data } = db.useQuery(
-    user && routeId
+    user && queryIds.length > 0
       ? {
           routes: {
-            $: { where: { id: routeId } },
+            $: { where: { id: { $in: queryIds } } },
             board: { photo: {} },
             ascents: { user: {} },
             likes: { user: {} },
-            comments: {
-              $: { order: { createdAt: "asc" } },
-              user: {},
-            },
+            comments: { user: {} },
           },
           $users: {
             $: { where: { id: user.id } },
@@ -51,61 +203,202 @@ export default function RouteDetailScreen() {
       : null
   );
 
-  if (isLoading) {
+  const currentRoute = data?.routes?.find((r: any) => r.id === displayedId);
+  const prevRoute = data?.routes?.find((r: any) => r.id === prevId);
+  const nextRoute = data?.routes?.find((r: any) => r.id === nextId);
+
+  const switchToRoute = useCallback(
+    (targetId: string) => {
+      scale.value = 1;
+      savedScale.value = 1;
+      translateX.value = 0;
+      translateY.value = 0;
+      savedTX.value = 0;
+      savedTY.value = 0;
+      // Clear transition state — React will re-render and show the normal layer.
+      // outgoingX / incomingX are NOT reset here to avoid flashing old content at
+      // center before React re-renders; the transition layers are unmounted first.
+      setDisplayedId(targetId);
+      setOutgoingRouteId(null);
+      setIncomingRouteId(null);
+      setFalls(0);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+
+  const handleSwipeEnd = useCallback(
+    (velocityX: number, velocityY: number, currentScale: number) => {
+      if (currentScale > 1.05) return;
+      const isHorizFling =
+        Math.abs(velocityX) > 600 &&
+        Math.abs(velocityX) > Math.abs(velocityY) * 1.5;
+      if (!isHorizFling) return;
+      const goNext = velocityX < 0;
+      const targetId = goNext ? nextId : prevId;
+      if (!targetId) return;
+
+      // Capture current displayed route as the outgoing route before state changes
+      setOutgoingRouteId(displayedId);
+      setIncomingRouteId(targetId);
+
+      // Position outgoing at 0 (current center), incoming off the correct edge
+      outgoingX.value = 0;
+      incomingX.value = goNext ? SCREEN_WIDTH : -SCREEN_WIDTH;
+
+      // Both layers animate simultaneously; incoming ends at 0 (center)
+      outgoingX.value = withTiming(goNext ? -SCREEN_WIDTH : SCREEN_WIDTH, {
+        duration: SLIDE_MS,
+      });
+      incomingX.value = withTiming(0, { duration: SLIDE_MS }, (finished) => {
+        if (finished) runOnJS(switchToRoute)(targetId);
+      });
+    },
+    [nextId, prevId, displayedId, switchToRoute, outgoingX, incomingX]
+  );
+
+  const pinch = Gesture.Pinch()
+    .onUpdate((e) => {
+      const s = Math.max(1, savedScale.value * e.scale);
+      scale.value = s;
+      // Reclamp translation so the image stays within bounds as scale changes
+      const maxTX = (s - 1) * containerW.value / 2;
+      const maxTY = (s - 1) * containerH.value / 2;
+      translateX.value = Math.max(-maxTX, Math.min(maxTX, translateX.value));
+      translateY.value = Math.max(-maxTY, Math.min(maxTY, translateY.value));
+    })
+    .onEnd(() => {
+      if (scale.value <= 1.05) {
+        // Zoomed back out — snap image to its original centered position
+        scale.value = withTiming(1);
+        savedScale.value = 1;
+        translateX.value = withTiming(0);
+        translateY.value = withTiming(0);
+        savedTX.value = 0;
+        savedTY.value = 0;
+      } else {
+        savedScale.value = scale.value;
+      }
+    });
+
+  const pan = Gesture.Pan()
+    .minDistance(8)
+    .onUpdate((e) => {
+      if (scale.value > 1.05) {
+        // Clamp so the image can never be panned beyond its zoomed bounds
+        const maxTX = (scale.value - 1) * containerW.value / 2;
+        const maxTY = (scale.value - 1) * containerH.value / 2;
+        translateX.value = Math.max(-maxTX, Math.min(maxTX, savedTX.value + e.translationX));
+        translateY.value = Math.max(-maxTY, Math.min(maxTY, savedTY.value + e.translationY));
+      }
+    })
+    .onEnd((e) => {
+      if (scale.value > 1.05) {
+        savedTX.value = translateX.value;
+        savedTY.value = translateY.value;
+      }
+      runOnJS(handleSwipeEnd)(e.velocityX, e.velocityY, scale.value);
+    });
+
+  const composed = Gesture.Simultaneous(pinch, pan);
+
+  // Compute where the image actually appears within the container (letterboxed)
+  function computeContainArea(): ContainArea {
+    const { width: nW, height: nH } = naturalSize;
+    const { width: cW, height: cH } = photoLayout;
+    if (nW <= 1 || nH <= 1 || cW <= 1 || cH <= 1) {
+      return { offsetX: 0, offsetY: 0, displayW: cW, displayH: cH };
+    }
+    const imageAspect = nW / nH;
+    const containerAspect = cW / cH;
+    if (imageAspect > containerAspect) {
+      const displayW = cW;
+      const displayH = cW / imageAspect;
+      return { offsetX: 0, offsetY: (cH - displayH) / 2, displayW, displayH };
+    } else {
+      const displayH = cH;
+      const displayW = cH * imageAspect;
+      return { offsetX: (cW - displayW) / 2, offsetY: 0, displayW, displayH };
+    }
+  }
+
+  function renderHoldDots(holdsToRender: Hold[]) {
+    const area = computeContainArea();
+    return holdsToRender.map((hold) => {
+      const solidColor = HOLD_COLORS[hold.color];
+      return (
+        <View
+          key={hold.id}
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            width: HOLD_SIZE,
+            height: HOLD_SIZE,
+            borderRadius: HOLD_SIZE / 2,
+            backgroundColor: colorWithAlpha(solidColor, 0.15),
+            borderWidth: 3,
+            borderColor: solidColor,
+            left: area.offsetX + hold.x * area.displayW - HOLD_SIZE / 2,
+            top: area.offsetY + hold.y * area.displayH - HOLD_SIZE / 2,
+            shadowColor: "#000",
+            shadowOffset: { width: 0, height: 1 },
+            shadowOpacity: 0.5,
+            shadowRadius: 3,
+            elevation: 4,
+          }}
+        />
+      );
+    });
+  }
+
+  // ── Loading / error ──────────────────────────────────────────────────────
+
+  if (isLoading && !currentRoute) {
     return (
-      <View className="flex-1 items-center justify-center bg-gray-50">
+      <View style={[styles.fill, styles.center, { backgroundColor: "#000" }]}>
         <ActivityIndicator size="large" color="#6366f1" />
       </View>
     );
   }
 
-  if (error || !data?.routes?.[0]) {
+  if (error || !currentRoute) {
     return (
-      <View className="flex-1 items-center justify-center bg-gray-50 px-6">
-        <Text className="text-red-500 text-center">
+      <View style={[styles.fill, styles.center, { backgroundColor: "#000" }]}>
+        <Text style={{ color: "#f87171" }}>
           {error?.message ?? "Route not found"}
         </Text>
       </View>
     );
   }
 
-  const route = data.routes[0];
-  const currentUser = data.$users?.[0];
-  const allAscents = route.ascents ?? [];
+  // ── Derived ──────────────────────────────────────────────────────────────
+
+  const currentUser = data?.$users?.[0];
+  const allAscents: any[] = currentRoute.ascents ?? [];
   const myAscents = allAscents.filter((a: any) => a.user?.id === user?.id);
   const lastAscent = [...myAscents].sort(
     (a: any, b: any) => b.loggedAt - a.loggedAt
   )[0];
-
-  const holds: Hold[] = (() => {
-    try {
-      return JSON.parse(route.holds ?? "[]");
-    } catch {
-      return [];
-    }
-  })();
-
-  const badgeColor = gradeBadgeColor(route.grade);
-  const photoUrl = route.board?.photo?.url;
-  const userPlaylists = currentUser?.playlists ?? [];
-
-  // Likes
-  const allLikes: any[] = route.likes ?? [];
+  const allLikes: any[] = currentRoute.likes ?? [];
   const myLike = allLikes.find((l: any) => l.user?.id === user?.id);
   const isLiked = !!myLike;
+  const comments = [...(currentRoute.comments ?? [])].sort(
+    (a: any, b: any) => a.createdAt - b.createdAt
+  );
+  const userPlaylists: any[] = currentUser?.playlists ?? [];
+  const holds = parseHolds(currentRoute.holds);
+  const photoUrl = currentRoute.board?.photo?.url as string | undefined;
 
-  // Comments
-  const comments: any[] = route.comments ?? [];
+  // ── Actions ──────────────────────────────────────────────────────────────
 
   async function logAscent() {
-    if (!user || !routeId) return;
+    if (!user || !displayedId) return;
     setLogging(true);
     try {
-      const ascentId = id();
       await db.transact([
-        db.tx.ascents[ascentId]
+        db.tx.ascents[id()]
           .update({ attempts: falls, loggedAt: Date.now() })
-          .link({ route: routeId, user: user.id }),
+          .link({ route: displayedId, user: user.id }),
       ]);
       setFalls(0);
     } finally {
@@ -114,28 +407,26 @@ export default function RouteDetailScreen() {
   }
 
   async function toggleLike() {
-    if (!user || !routeId) return;
+    if (!user || !displayedId) return;
     if (isLiked && myLike) {
       await db.transact([db.tx.likes[myLike.id].delete()]);
     } else {
-      const likeId = id();
       await db.transact([
-        db.tx.likes[likeId]
+        db.tx.likes[id()]
           .update({ createdAt: Date.now() })
-          .link({ route: routeId, user: user.id }),
+          .link({ route: displayedId, user: user.id }),
       ]);
     }
   }
 
   async function submitComment() {
-    if (!user || !routeId || !commentText.trim()) return;
+    if (!user || !displayedId || !commentText.trim()) return;
     setSubmittingComment(true);
     try {
-      const commentId = id();
       await db.transact([
-        db.tx.comments[commentId]
+        db.tx.comments[id()]
           .update({ text: commentText.trim(), createdAt: Date.now() })
-          .link({ route: routeId, user: user.id }),
+          .link({ route: displayedId, user: user.id }),
       ]);
       setCommentText("");
     } finally {
@@ -148,18 +439,17 @@ export default function RouteDetailScreen() {
   }
 
   async function togglePlaylist(pl: any) {
-    const isInPlaylist = (pl.routes ?? []).some((r: any) => r.id === routeId);
-    if (isInPlaylist) {
-      await db.transact([db.tx.playlists[pl.id].unlink({ routes: routeId })]);
+    const inPl = (pl.routes ?? []).some((r: any) => r.id === displayedId);
+    if (inPl) {
+      await db.transact([db.tx.playlists[pl.id].unlink({ routes: displayedId })]);
     } else {
-      await db.transact([db.tx.playlists[pl.id].link({ routes: routeId })]);
+      await db.transact([db.tx.playlists[pl.id].link({ routes: displayedId })]);
     }
   }
 
-  function commentAuthor(comment: any): string {
-    if (comment.user?.id === user?.id) return "You";
-    const email: string | undefined = comment.user?.email;
-    if (email) return email.split("@")[0];
+  function commentAuthor(c: any): string {
+    if (c.user?.id === user?.id) return "You";
+    if (c.user?.email) return (c.user.email as string).split("@")[0];
     return "Climber";
   }
 
@@ -173,265 +463,392 @@ export default function RouteDetailScreen() {
     return `${Math.floor(h / 24)}d ago`;
   }
 
+  // ── Render ────────────────────────────────────────────────────────────────
+
   return (
-    <View className="flex-1 bg-gray-50">
-      {/* Board photo — tap to open full-screen viewer */}
-      <Pressable
-        style={{ height: 300, backgroundColor: "#1f2937" }}
-        onPress={() => setShowPhotoModal(true)}
+    <View style={[styles.fill, { backgroundColor: "#000" }]}>
+
+      {/* ── Photo area ── */}
+      <View
+        style={{ flex: 1, overflow: "hidden" }}
+        onLayout={(e) => {
+          const w = e.nativeEvent.layout.width;
+          const h = e.nativeEvent.layout.height;
+          setPhotoLayout({ width: w, height: h });
+          containerW.value = w;
+          containerH.value = h;
+        }}
       >
-        <HoldOverlay photoUrl={photoUrl} holds={holds} mode="display" />
-        <View className="absolute bottom-3 right-3 bg-black/50 rounded-lg px-2 py-1 flex-row items-center gap-x-1">
-          <Ionicons name="expand-outline" size={12} color="#fff" />
-          <Text className="text-white text-xs">Tap to zoom</Text>
-        </View>
-      </Pressable>
+        {/* Board photo + hold dots — all inside the zoom layer so dots track the image */}
+        <GestureDetector gesture={composed}>
+          <View style={StyleSheet.absoluteFill} collapsable={false}>
+            <Animated.View style={[StyleSheet.absoluteFill, zoomStyle]}>
+              <Image
+                source={photoUrl ? { uri: photoUrl } : undefined}
+                style={{ width: "100%", height: "100%", backgroundColor: "#000" }}
+                contentFit="contain"
+                onLoad={(e: any) => {
+                  const w = e?.source?.width;
+                  const h = e?.source?.height;
+                  if (w && h) setNaturalSize({ width: w, height: h });
+                }}
+              />
 
-      <ScrollView className="flex-1" contentContainerStyle={{ padding: 16 }}>
-        {/* Route info */}
-        <View className="bg-white rounded-2xl p-4 mb-4">
-          <View className="flex-row items-center gap-x-3 mb-2">
+              {/* Dots only (no info bar) — they zoom + pan with the image */}
+              {!isTransitioning && (
+                <View style={StyleSheet.absoluteFill} pointerEvents="none">
+                  {renderHoldDots(holds)}
+                </View>
+              )}
+              {isTransitioning && outgoingRouteId && (() => {
+                const outRoute = data?.routes?.find((r: any) => r.id === outgoingRouteId);
+                return outRoute ? (
+                  <Animated.View style={[StyleSheet.absoluteFill, outgoingStyle]} pointerEvents="none">
+                    {renderHoldDots(parseHolds(outRoute.holds))}
+                  </Animated.View>
+                ) : null;
+              })()}
+              {isTransitioning && incomingRouteId && (() => {
+                const inRoute = data?.routes?.find((r: any) => r.id === incomingRouteId);
+                return inRoute ? (
+                  <Animated.View style={[StyleSheet.absoluteFill, incomingStyle]} pointerEvents="none">
+                    {renderHoldDots(parseHolds(inRoute.holds))}
+                  </Animated.View>
+                ) : null;
+              })()}
+            </Animated.View>
+          </View>
+        </GestureDetector>
+
+        {/* Route info bar — outside zoom layer so it stays anchored at the bottom */}
+        {!isTransitioning && (
+          <View style={StyleSheet.absoluteFill} pointerEvents="none">
+            <RouteInfoBar route={currentRoute} userId={user?.id} />
+          </View>
+        )}
+        {isTransitioning && outgoingRouteId && (() => {
+          const outRoute = data?.routes?.find((r: any) => r.id === outgoingRouteId);
+          return outRoute ? (
+            <Animated.View style={[StyleSheet.absoluteFill, outgoingStyle]} pointerEvents="none">
+              <RouteInfoBar route={outRoute} userId={user?.id} />
+            </Animated.View>
+          ) : null;
+        })()}
+        {isTransitioning && incomingRouteId && (() => {
+          const inRoute = data?.routes?.find((r: any) => r.id === incomingRouteId);
+          return inRoute ? (
+            <Animated.View style={[StyleSheet.absoluteFill, incomingStyle]} pointerEvents="none">
+              <RouteInfoBar route={inRoute} userId={user?.id} />
+            </Animated.View>
+          ) : null;
+        })()}
+
+        {/* UI overlays — back button, info, position indicator, swipe arrows */}
+        <View style={[StyleSheet.absoluteFill, { pointerEvents: "box-none" }]}>
+          {/* ← Routes */}
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={[
+              styles.pill,
+              {
+                position: "absolute",
+                top: insets.top + 8,
+                left: 16,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 2,
+              },
+            ]}
+          >
+            <Ionicons name="chevron-back" size={16} color="#fff" />
+            <Text style={styles.pillText}>Routes</Text>
+          </TouchableOpacity>
+
+          {/* Position indicator */}
+          {routeIds.length > 1 && displayedIndex >= 0 && (
             <View
-              className="rounded-xl items-center justify-center"
-              style={{ backgroundColor: badgeColor, width: 52, height: 52 }}
+              style={{
+                position: "absolute",
+                top: insets.top + 14,
+                left: 0,
+                right: 0,
+                alignItems: "center",
+                pointerEvents: "none",
+              }}
             >
-              <Text className="text-white font-bold text-sm">{route.grade}</Text>
-            </View>
-            <View className="flex-1">
-              <Text className="text-gray-800 font-bold text-xl">{route.name}</Text>
-            </View>
-          </View>
-          {route.description ? (
-            <Text className="text-gray-500 text-sm mt-1">{route.description}</Text>
-          ) : null}
-        </View>
-
-        {/* Stats */}
-        <View className="bg-white rounded-2xl p-4 mb-4 flex-row">
-          <View className="flex-1 items-center">
-            <Text className="text-2xl font-bold text-indigo-600">
-              {allAscents.length}
-            </Text>
-            <Text className="text-gray-400 text-xs mt-0.5">Total Ascents</Text>
-          </View>
-          <View className="flex-1 items-center">
-            <Text className="text-2xl font-bold text-indigo-600">
-              {myAscents.length}
-            </Text>
-            <Text className="text-gray-400 text-xs mt-0.5">Your Ascents</Text>
-          </View>
-          <View className="flex-1 items-center">
-            <Text className="text-sm font-bold text-indigo-600 text-center">
-              {lastAscent
-                ? new Date(lastAscent.loggedAt).toLocaleDateString()
-                : "—"}
-            </Text>
-            <Text className="text-gray-400 text-xs mt-0.5">Last Ascent</Text>
-          </View>
-        </View>
-
-        {/* Fall counter & log */}
-        <View className="bg-white rounded-2xl p-4 mb-4">
-          <Text className="text-xs font-semibold text-gray-400 uppercase mb-3">
-            Current Attempt
-          </Text>
-          <View className="flex-row items-center justify-center gap-x-6 mb-4">
-            <TouchableOpacity
-              onPress={() => setFalls(Math.max(0, falls - 1))}
-              className="bg-gray-100 rounded-full items-center justify-center"
-              style={{ width: 48, height: 48 }}
-            >
-              <Text className="text-gray-700 text-2xl font-light">−</Text>
-            </TouchableOpacity>
-            <View className="items-center">
-              <Text className="text-4xl font-bold text-gray-800">{falls}</Text>
-              <Text className="text-gray-400 text-xs">
-                {falls === 1 ? "fall" : "falls"}
+              <Text style={{ color: "rgba(255,255,255,0.55)", fontSize: 12 }}>
+                {displayedIndex + 1} / {routeIds.length}
               </Text>
             </View>
-            <TouchableOpacity
-              onPress={() => setFalls(falls + 1)}
-              className="bg-gray-100 rounded-full items-center justify-center"
-              style={{ width: 48, height: 48 }}
+          )}
+
+          {/* ⓘ Info */}
+          <TouchableOpacity
+            onPress={() => setShowInfo(true)}
+            style={[
+              styles.pill,
+              { position: "absolute", top: insets.top + 8, right: 16 },
+            ]}
+          >
+            <Ionicons name="information-circle" size={20} color="#fff" />
+          </TouchableOpacity>
+
+          {/* Swipe arrows */}
+          {prevId && (
+            <View
+              style={{
+                position: "absolute",
+                left: 6,
+                top: "45%",
+                pointerEvents: "none",
+              }}
             >
-              <Text className="text-gray-700 text-2xl font-light">+</Text>
-            </TouchableOpacity>
+              <Text style={styles.swipeArrow}>‹</Text>
+            </View>
+          )}
+          {nextId && (
+            <View
+              style={{
+                position: "absolute",
+                right: 6,
+                top: "45%",
+                pointerEvents: "none",
+              }}
+            >
+              <Text style={styles.swipeArrow}>›</Text>
+            </View>
+          )}
+        </View>
+      </View>
+
+      {/* ── Fixed bottom bar: falls counter + Log Ascent ── */}
+      <View style={[styles.fixedBar, { paddingBottom: insets.bottom + 8 }]}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <TouchableOpacity
+            onPress={() => setFalls((f) => Math.max(0, f - 1))}
+            style={styles.circleBtn}
+          >
+            <Text style={styles.circleBtnText}>−</Text>
+          </TouchableOpacity>
+
+          <View style={{ alignItems: "center", minWidth: 52 }}>
+            <Text style={{ color: "#fff", fontSize: 24, fontWeight: "700" }}>
+              {falls}
+            </Text>
+            <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10 }}>
+              {falls === 1 ? "fall" : "falls"}
+            </Text>
           </View>
+
+          <TouchableOpacity
+            onPress={() => setFalls((f) => f + 1)}
+            style={styles.circleBtn}
+          >
+            <Text style={styles.circleBtnText}>+</Text>
+          </TouchableOpacity>
+
           <TouchableOpacity
             onPress={logAscent}
             disabled={logging}
-            className="bg-indigo-600 rounded-xl py-3 items-center"
-            style={{ opacity: logging ? 0.5 : 1 }}
+            style={[styles.logBtn, { opacity: logging ? 0.5 : 1 }]}
           >
             {logging ? (
-              <ActivityIndicator color="#fff" />
+              <ActivityIndicator size="small" color="#fff" />
             ) : (
-              <Text className="text-white font-semibold">Log Ascent</Text>
+              <Text style={styles.logBtnText}>Log ascent</Text>
             )}
           </TouchableOpacity>
         </View>
+      </View>
 
-        {/* Like & playlist row */}
-        <View className="flex-row gap-x-3 mb-4">
+      {/* ── Info modal ── */}
+      <Modal
+        visible={showInfo}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowInfo(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={{ flex: 1, justifyContent: "flex-end" }}
+        >
           <TouchableOpacity
-            onPress={toggleLike}
-            className="flex-1 bg-white rounded-2xl py-3 flex-row items-center justify-center gap-x-2"
-          >
-            <Ionicons
-              name={isLiked ? "heart" : "heart-outline"}
-              size={20}
-              color={isLiked ? "#ef4444" : "#6b7280"}
-            />
-            <Text
-              className="font-semibold text-sm"
-              style={{ color: isLiked ? "#ef4444" : "#6b7280" }}
+            style={{ flex: 1 }}
+            activeOpacity={1}
+            onPress={() => setShowInfo(false)}
+          />
+          <View style={styles.sheet}>
+            <View style={styles.handle} />
+            <ScrollView
+              contentContainerStyle={{ padding: 20 }}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
             >
-              {allLikes.length} {allLikes.length === 1 ? "Like" : "Likes"}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => setShowPlaylistModal(true)}
-            className="flex-1 bg-white rounded-2xl py-3 flex-row items-center justify-center gap-x-2"
-          >
-            <Ionicons name="bookmark-outline" size={20} color="#6b7280" />
-            <Text className="text-gray-500 font-semibold text-sm">Playlist</Text>
-          </TouchableOpacity>
-        </View>
+              <Text style={styles.sectionLabel}>Statistics</Text>
+              <View style={styles.statsRow}>
+                <StatCell label="Total" value={String(allAscents.length)} />
+                <StatCell label="Yours" value={String(myAscents.length)} />
+                <StatCell
+                  label="Last ascent"
+                  value={
+                    lastAscent
+                      ? new Date(lastAscent.loggedAt).toLocaleDateString()
+                      : "—"
+                  }
+                  small
+                />
+              </View>
 
-        {/* Comments */}
-        <View className="bg-white rounded-2xl p-4 mb-4">
-          <Text className="text-xs font-semibold text-gray-400 uppercase mb-3">
-            Comments ({comments.length})
-          </Text>
-
-          {comments.length === 0 ? (
-            <Text className="text-gray-400 text-sm text-center py-2">
-              No comments yet. Be the first!
-            </Text>
-          ) : (
-            comments.map((c: any) => (
-              <View
-                key={c.id}
-                className="flex-row items-start mb-3 pb-3 border-b border-gray-50"
+              <TouchableOpacity
+                onPress={toggleLike}
+                style={[styles.infoRow, { marginBottom: 10 }]}
               >
-                {/* Avatar circle */}
-                <View
-                  className="rounded-full items-center justify-center mr-3 mt-0.5"
+                <Ionicons
+                  name={isLiked ? "heart" : "heart-outline"}
+                  size={22}
+                  color={isLiked ? "#ef4444" : "#6b7280"}
+                />
+                <Text
+                  style={[
+                    styles.infoRowText,
+                    { color: isLiked ? "#ef4444" : "#6b7280" },
+                  ]}
+                >
+                  {allLikes.length} {allLikes.length === 1 ? "like" : "likes"}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => {
+                  setShowInfo(false);
+                  setShowPlaylistModal(true);
+                }}
+                style={[styles.infoRow, { marginBottom: 20 }]}
+              >
+                <Ionicons name="bookmark-outline" size={20} color="#6b7280" />
+                <Text style={[styles.infoRowText, { color: "#6b7280" }]}>
+                  Add to playlist
+                </Text>
+
+              </TouchableOpacity>
+
+              <Text style={styles.sectionLabel}>
+                Comments ({comments.length})
+              </Text>
+              {comments.length === 0 && (
+                <Text
                   style={{
-                    width: 28,
-                    height: 28,
-                    backgroundColor:
-                      c.user?.id === user?.id ? "#6366f1" : "#e5e7eb",
+                    color: "#9ca3af",
+                    textAlign: "center",
+                    marginBottom: 12,
                   }}
                 >
-                  <Text
-                    className="text-xs font-bold"
-                    style={{
-                      color: c.user?.id === user?.id ? "#fff" : "#6b7280",
-                    }}
+                  No comments yet
+                </Text>
+              )}
+              {comments.map((c: any) => (
+                <View
+                  key={c.id}
+                  style={{ flexDirection: "row", marginBottom: 12 }}
+                >
+                  <View
+                    style={[
+                      styles.avatar,
+                      {
+                        backgroundColor:
+                          c.user?.id === user?.id ? "#6366f1" : "#e5e7eb",
+                      },
+                    ]}
                   >
-                    {commentAuthor(c).charAt(0).toUpperCase()}
-                  </Text>
-                </View>
-                <View className="flex-1">
-                  <View className="flex-row items-center gap-x-2 mb-0.5">
-                    <Text className="text-gray-700 font-semibold text-xs">
-                      {commentAuthor(c)}
+                    <Text
+                      style={{
+                        color: c.user?.id === user?.id ? "#fff" : "#6b7280",
+                        fontSize: 11,
+                        fontWeight: "700",
+                      }}
+                    >
+                      {commentAuthor(c).charAt(0).toUpperCase()}
                     </Text>
-                    <Text className="text-gray-300 text-xs">{timeAgo(c.createdAt)}</Text>
                   </View>
-                  <Text className="text-gray-600 text-sm">{c.text}</Text>
+                  <View style={{ flex: 1 }}>
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 6,
+                        marginBottom: 2,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 12,
+                          fontWeight: "600",
+                          color: "#374151",
+                        }}
+                      >
+                        {commentAuthor(c)}
+                      </Text>
+                      <Text style={{ fontSize: 11, color: "#d1d5db" }}>
+                        {timeAgo(c.createdAt)}
+                      </Text>
+                    </View>
+                    <Text style={{ fontSize: 14, color: "#4b5563" }}>
+                      {c.text}
+                    </Text>
+                  </View>
+                  {c.user?.id === user?.id && (
+                    <TouchableOpacity
+                      onPress={() => deleteComment(c.id)}
+                      style={{ padding: 4, marginLeft: 4 }}
+                    >
+                      <Ionicons name="close" size={14} color="#d1d5db" />
+                    </TouchableOpacity>
+                  )}
                 </View>
-                {c.user?.id === user?.id && (
-                  <TouchableOpacity
-                    onPress={() => deleteComment(c.id)}
-                    className="ml-2 p-1"
-                  >
-                    <Ionicons name="close" size={14} color="#d1d5db" />
-                  </TouchableOpacity>
-                )}
-              </View>
-            ))
-          )}
+              ))}
 
-          {/* Comment input */}
-          <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-          >
-            <View className="flex-row items-center gap-x-2 mt-2">
-              <TextInput
-                className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800"
-                placeholder="Add a comment…"
-                placeholderTextColor="#9ca3af"
-                value={commentText}
-                onChangeText={setCommentText}
-                returnKeyType="send"
-                onSubmitEditing={submitComment}
-              />
-              <TouchableOpacity
-                onPress={submitComment}
-                disabled={submittingComment || !commentText.trim()}
-                className="bg-indigo-600 rounded-xl px-3 py-2"
-                style={{ opacity: submittingComment || !commentText.trim() ? 0.4 : 1 }}
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 8,
+                  marginTop: 8,
+                }}
               >
-                {submittingComment ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Ionicons name="send" size={16} color="#fff" />
-                )}
-              </TouchableOpacity>
-            </View>
-          </KeyboardAvoidingView>
-        </View>
-      </ScrollView>
-
-      {/* Full-screen photo modal */}
-      <Modal
-        visible={showPhotoModal}
-        transparent={false}
-        animationType="fade"
-        onRequestClose={() => setShowPhotoModal(false)}
-      >
-        <View style={{ flex: 1, backgroundColor: "#000" }}>
-          <HoldOverlay
-            photoUrl={photoUrl}
-            holds={holds}
-            mode="display"
-            zoomable
-          />
-          <TouchableOpacity
-            onPress={() => setShowPhotoModal(false)}
-            style={{
-              position: "absolute",
-              top: 56,
-              right: 16,
-              backgroundColor: "rgba(0,0,0,0.5)",
-              borderRadius: 20,
-              width: 40,
-              height: 40,
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <Ionicons name="close" size={22} color="#fff" />
-          </TouchableOpacity>
-          <View
-            style={{
-              position: "absolute",
-              bottom: 40,
-              left: 0,
-              right: 0,
-              alignItems: "center",
-            }}
-          >
-            <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 12 }}>
-              Pinch to zoom · Drag to pan
-            </Text>
+                <TextInput
+                  style={styles.commentInput}
+                  placeholder="Add a comment…"
+                  placeholderTextColor="#9ca3af"
+                  value={commentText}
+                  onChangeText={setCommentText}
+                  returnKeyType="send"
+                  onSubmitEditing={submitComment}
+                />
+                <TouchableOpacity
+                  onPress={submitComment}
+                  disabled={submittingComment || !commentText.trim()}
+                  style={[
+                    styles.sendBtn,
+                    {
+                      opacity:
+                        submittingComment || !commentText.trim() ? 0.4 : 1,
+                    },
+                  ]}
+                >
+                  {submittingComment ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Ionicons name="send" size={16} color="#fff" />
+                  )}
+                </TouchableOpacity>
+              </View>
+              <View style={{ height: 32 }} />
+            </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
-      {/* Playlist Modal */}
+      {/* ── Playlist modal ── */}
       <Modal
         visible={showPlaylistModal}
         transparent
@@ -439,57 +856,231 @@ export default function RouteDetailScreen() {
         onRequestClose={() => setShowPlaylistModal(false)}
       >
         <TouchableOpacity
-          className="flex-1 bg-black/40 justify-end"
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.4)",
+            justifyContent: "flex-end",
+          }}
           activeOpacity={1}
           onPress={() => setShowPlaylistModal(false)}
         >
-          <View className="bg-white rounded-t-3xl p-6">
-            <Text className="text-lg font-bold text-gray-800 mb-4">
-              Add to Playlist
-            </Text>
-            {userPlaylists.length === 0 ? (
-              <Text className="text-gray-400 text-center py-2 mb-4">
-                No playlists yet — create one in your Profile.
+          <View style={styles.sheet}>
+            <View style={styles.handle} />
+            <View style={{ padding: 24 }}>
+              <Text
+                style={{
+                  fontSize: 17,
+                  fontWeight: "700",
+                  color: "#111827",
+                  marginBottom: 16,
+                }}
+              >
+                Add to playlist
               </Text>
-            ) : (
-              userPlaylists.map((pl: any) => {
-                const inPlaylist = (pl.routes ?? []).some(
-                  (r: any) => r.id === routeId
-                );
-                return (
-                  <TouchableOpacity
-                    key={pl.id}
-                    onPress={() => togglePlaylist(pl)}
-                    className="flex-row items-center py-3 border-b border-gray-100"
-                  >
-                    <View
-                      className="w-5 h-5 rounded-full border-2 mr-3 items-center justify-center"
-                      style={{
-                        borderColor: inPlaylist ? "#6366f1" : "#d1d5db",
-                        backgroundColor: inPlaylist ? "#6366f1" : "transparent",
-                      }}
+              {userPlaylists.length === 0 ? (
+                <Text
+                  style={{
+                    color: "#9ca3af",
+                    textAlign: "center",
+                    paddingVertical: 12,
+                  }}
+                >
+                  No playlists yet — create one in your profile.
+                </Text>
+              ) : (
+                userPlaylists.map((pl: any) => {
+                  const inPl = (pl.routes ?? []).some(
+                    (r: any) => r.id === displayedId
+                  );
+                  return (
+                    <TouchableOpacity
+                      key={pl.id}
+                      onPress={() => togglePlaylist(pl)}
+                      style={styles.playlistRow}
                     >
-                      {inPlaylist && (
-                        <Text className="text-white text-xs">✓</Text>
-                      )}
-                    </View>
-                    <Text className="text-gray-800 flex-1">{pl.name}</Text>
-                    <Text className="text-gray-400 text-xs">
-                      {pl.routes?.length ?? 0} routes
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })
-            )}
-            <TouchableOpacity
-              onPress={() => setShowPlaylistModal(false)}
-              className="mt-4 bg-gray-100 rounded-xl py-3 items-center"
-            >
-              <Text className="text-gray-600 font-medium">Done</Text>
-            </TouchableOpacity>
+                      <View
+                        style={[
+                          styles.checkbox,
+                          {
+                            borderColor: inPl ? "#6366f1" : "#d1d5db",
+                            backgroundColor: inPl ? "#6366f1" : "transparent",
+                          },
+                        ]}
+                      >
+                        {inPl && (
+                          <Text style={{ color: "#fff", fontSize: 10 }}>✓</Text>
+                        )}
+                      </View>
+                      <Text style={{ flex: 1, color: "#111827" }}>
+                        {pl.name}
+                      </Text>
+                      <Text style={{ color: "#9ca3af", fontSize: 12 }}>
+                        {pl.routes?.length ?? 0} routes
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+              <TouchableOpacity
+                onPress={() => setShowPlaylistModal(false)}
+                style={styles.doneBtn}
+              >
+                <Text style={{ color: "#4b5563", fontWeight: "500" }}>Done</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </TouchableOpacity>
       </Modal>
     </View>
   );
 }
+
+// ── Styles ────────────────────────────────────────────────────────────────────
+
+const styles = StyleSheet.create({
+  fill: { flex: 1 },
+  center: { alignItems: "center", justifyContent: "center" },
+
+  infoBar: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.88)",
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 8,
+  },
+  gradeBadge: {
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginRight: 10,
+  },
+  gradeText: { color: "#fff", fontWeight: "700", fontSize: 13 },
+  routeName: { flex: 1, color: "#fff", fontWeight: "600", fontSize: 16 },
+
+  fixedBar: {
+    backgroundColor: "rgba(0,0,0,0.88)",
+    paddingHorizontal: 16,
+    paddingTop: 12,
+  },
+
+  pill: {
+    backgroundColor: "rgba(0,0,0,0.5)",
+    borderRadius: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  pillText: { color: "#fff", fontSize: 14 },
+  swipeArrow: { color: "rgba(255,255,255,0.25)", fontSize: 36 },
+
+  circleBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  circleBtnText: { color: "#fff", fontSize: 22, lineHeight: 26 },
+  logBtn: {
+    flex: 1,
+    backgroundColor: "#6366f1",
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  logBtnText: { color: "#fff", fontWeight: "600", fontSize: 15 },
+
+  sheet: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: "82%",
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    backgroundColor: "#e5e7eb",
+    borderRadius: 2,
+    alignSelf: "center",
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  sectionLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#9ca3af",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+    marginBottom: 12,
+  },
+  statsRow: {
+    flexDirection: "row",
+    backgroundColor: "#f9fafb",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 20,
+  },
+  infoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f9fafb",
+    borderRadius: 12,
+    padding: 14,
+    gap: 10,
+  },
+  infoRowText: { fontWeight: "600", fontSize: 15 },
+  avatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+    marginTop: 2,
+  },
+  commentInput: {
+    flex: 1,
+    backgroundColor: "#f3f4f6",
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    fontSize: 14,
+    color: "#111827",
+  },
+  sendBtn: {
+    backgroundColor: "#6366f1",
+    borderRadius: 20,
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  playlistRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f3f4f6",
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    marginRight: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  doneBtn: {
+    marginTop: 16,
+    backgroundColor: "#f3f4f6",
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+});

@@ -79,7 +79,13 @@ export default function PlaylistDetailScreen() {
             <RouteCard
               route={item}
               onPress={() =>
-                router.push({ pathname: "/route/[id]", params: { id: item.id } })
+                router.push({
+                  pathname: "/route/[id]",
+                  params: {
+                    id: item.id,
+                    routeIds: JSON.stringify(routes.map((r) => r.id)),
+                  },
+                })
               }
             />
           )}

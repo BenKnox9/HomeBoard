@@ -97,7 +97,7 @@ export default function RoutesScreen() {
           onPress={() => router.push("/(tabs)/profile")}
           className="bg-indigo-600 rounded-xl px-6 py-3"
         >
-          <Text className="text-white font-semibold">Go to Profile</Text>
+          <Text className="text-white font-semibold">Go to profile</Text>
         </TouchableOpacity>
       </View>
     );
@@ -192,7 +192,13 @@ export default function RoutesScreen() {
             <RouteCard
               route={item}
               onPress={() =>
-                router.push({ pathname: "/route/[id]", params: { id: item.id } })
+                router.push({
+                  pathname: "/route/[id]",
+                  params: {
+                    id: item.id,
+                    routeIds: JSON.stringify(filteredRoutes.map((r) => r.id)),
+                  },
+                })
               }
             />
           )}

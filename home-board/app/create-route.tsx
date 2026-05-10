@@ -2,19 +2,27 @@ import HoldOverlay, { Hold, HoldColor } from "@/components/HoldOverlay";
 import { db } from "@/lib/db";
 import { GRADES } from "@/lib/grades";
 import { id } from "@instantdb/react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
-  Platform,
+  Keyboard,
   ScrollView,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const HOLD_COLORS: { color: HoldColor; hex: string }[] = [
   { color: "green", hex: "#22c55e" },
@@ -23,42 +31,74 @@ const HOLD_COLORS: { color: HoldColor; hex: string }[] = [
   { color: "red", hex: "#ef4444" },
 ];
 
+const FORM_HEIGHT = 400;
+
 export default function CreateRouteScreen() {
   const router = useRouter();
   const { user } = db.useAuth();
+  const insets = useSafeAreaInsets();
 
   const [holds, setHolds] = useState<Hold[]>([]);
-  const [activeColor, setActiveColor] = useState<HoldColor>("red");
+  const [activeColor, setActiveColor] = useState<HoldColor>("green");
   const [grade, setGrade] = useState("V0");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
+
+  // Slide-up form sheet — withTiming for a smooth non-bouncy animation
+  const formY = useSharedValue(FORM_HEIGHT);
+
+  const formSheetStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: formY.value }],
+  }));
+
+  function openForm() {
+    setFormOpen(true);
+    formY.value = withTiming(0, {
+      duration: 300,
+      easing: Easing.out(Easing.cubic),
+    });
+  }
+
+  function closeForm() {
+    Keyboard.dismiss();
+    formY.value = withTiming(FORM_HEIGHT, {
+      duration: 250,
+      easing: Easing.in(Easing.cubic),
+    });
+    setFormOpen(false);
+  }
 
   const { isLoading, data } = db.useQuery(
     user
-      ? {
-          $users: {
-            $: { where: { id: user.id } },
-            selectedBoard: {
-              photo: {},
-            },
-          },
-        }
+      ? { $users: { $: { where: { id: user.id } }, selectedBoard: { photo: {} } } }
       : null
   );
 
   const board = data?.$users?.[0]?.selectedBoard;
   const photoUrl = (board as any)?.photo?.url;
 
+  const hasGreenHold = holds.some((h) => h.color === "green");
+  const hasRedHold = holds.some((h) => h.color === "red");
+  const canSave = !!name.trim() && hasGreenHold && hasRedHold;
+
   async function save() {
-    if (!user || !board || !name.trim()) {
+    if (!user || !board) return;
+    if (!name.trim()) {
       Alert.alert("Missing info", "Please enter a route name.");
+      return;
+    }
+    if (!hasGreenHold || !hasRedHold) {
+      Alert.alert(
+        "Incomplete route",
+        "Add at least one green (start) hold and one red (finish) hold."
+      );
       return;
     }
     setSaving(true);
     try {
       const routeId = id();
-      // Build update object without undefined values — InstantDB rejects them
       const routeData: Record<string, unknown> = {
         name: name.trim(),
         grade,
@@ -83,7 +123,7 @@ export default function CreateRouteScreen() {
 
   if (isLoading) {
     return (
-      <View className="flex-1 items-center justify-center bg-gray-50">
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
         <ActivityIndicator size="large" color="#6366f1" />
       </View>
     );
@@ -91,97 +131,128 @@ export default function CreateRouteScreen() {
 
   if (!board) {
     return (
-      <View className="flex-1 items-center justify-center bg-gray-50 px-8">
-        <Text className="text-gray-600 text-center text-base">
+      <View
+        style={{
+          flex: 1,
+          alignItems: "center",
+          justifyContent: "center",
+          paddingHorizontal: 32,
+        }}
+      >
+        <Text style={{ color: "#4b5563", textAlign: "center", fontSize: 16 }}>
           No board selected. Go to your profile to add one.
         </Text>
       </View>
     );
   }
 
-  return (
-    <View className="flex-1 bg-gray-50">
-      {/* Board photo with interactive hold overlay — fixed height */}
-      <View style={{ height: 320, backgroundColor: "#1f2937" }}>
-        <HoldOverlay
-          photoUrl={photoUrl}
-          holds={holds}
-          mode="interactive"
-          activeColor={activeColor}
-          onHoldsChange={setHolds}
-        />
+  // Contextual hint — guides the setter through the colour requirements
+  const hint =
+    holds.length === 0
+      ? "Tap to place · Pinch to zoom"
+      : !hasGreenHold
+      ? "● Add a green start hold"
+      : !hasRedHold
+      ? "● Add a red finish hold"
+      : null;
 
-        {/* Color picker overlaid at bottom of photo */}
-        <View className="absolute bottom-3 left-0 right-0 flex-row justify-center gap-x-4">
-          {HOLD_COLORS.map(({ color, hex }) => (
-            <TouchableOpacity
-              key={color}
-              onPress={() => setActiveColor(color)}
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: 18,
+  // Badges sit below the transparent nav header
+  const badgeTop = insets.top + 48;
+
+  return (
+    <View style={{ flex: 1, backgroundColor: "#000" }}>
+      {/* Full-screen interactive image — fills the whole screen behind the transparent header */}
+      <HoldOverlay
+        photoUrl={photoUrl}
+        holds={holds}
+        mode="interactive"
+        activeColor={activeColor}
+        onHoldsChange={setHolds}
+      />
+
+      {/* Hold count badge — top right, below transparent header */}
+      <View style={[styles.holdCountBadge, { top: badgeTop }]}>
+        <Text style={styles.holdCountText}>
+          {holds.length} hold{holds.length !== 1 ? "s" : ""}
+        </Text>
+      </View>
+
+      {/* Contextual hint — top left */}
+      {hint !== null && (
+        <View style={[styles.hintBadge, { top: badgeTop }]}>
+          <Text style={styles.hintText}>{hint}</Text>
+        </View>
+      )}
+
+      {/* Colour picker — fixed at bottom, stays put when form slides up */}
+      <View style={styles.colorPickerRow}>
+        {HOLD_COLORS.map(({ color, hex }) => (
+          <TouchableOpacity
+            key={color}
+            onPress={() => setActiveColor(color)}
+            style={[
+              styles.colorDot,
+              {
                 backgroundColor: hex,
                 borderWidth: activeColor === color ? 3 : 2,
                 borderColor:
                   activeColor === color ? "#fff" : "rgba(255,255,255,0.4)",
-                shadowColor: "#000",
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: 0.4,
-                shadowRadius: 3,
-                elevation: 4,
-              }}
-            />
-          ))}
-        </View>
-
-        {/* Hold count badge */}
-        <View className="absolute top-3 right-3 bg-black/50 rounded-full px-3 py-1">
-          <Text className="text-white text-xs font-semibold">
-            {holds.length} hold{holds.length !== 1 ? "s" : ""}
-          </Text>
-        </View>
-
-        {/* Tap / pinch hint */}
-        {holds.length === 0 && (
-          <View className="absolute top-3 left-3 bg-black/50 rounded-lg px-3 py-1.5">
-            <Text className="text-white text-xs">Tap to place · Pinch to zoom</Text>
-          </View>
-        )}
+              },
+            ]}
+          />
+        ))}
       </View>
 
-      {/* Keyboard-aware form */}
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={{ flex: 1 }}
-      >
+      {/* "Route details" toggle — only shown when form is closed */}
+      {!formOpen && (
+        <TouchableOpacity style={styles.openFormBtn} onPress={openForm}>
+          <Ionicons name="chevron-up" size={16} color="#fff" />
+          <Text style={styles.openFormBtnText}>Route details</Text>
+        </TouchableOpacity>
+      )}
+
+      {/* Sliding form sheet */}
+      <Animated.View style={[styles.formSheet, formSheetStyle]}>
+        {/* Header row: drag handle + Done button */}
+        <View style={styles.sheetHeader}>
+          <View style={{ width: 48 }} />
+          <View style={styles.handleBar} />
+          <TouchableOpacity
+            onPress={closeForm}
+            style={{ width: 48, alignItems: "flex-end" }}
+          >
+            <Text style={styles.doneText}>Done</Text>
+          </TouchableOpacity>
+        </View>
+
         <ScrollView
-          className="flex-1"
-          contentContainerStyle={{ padding: 16 }}
+          contentContainerStyle={styles.formContent}
           keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets
+          showsVerticalScrollIndicator={false}
         >
-          {/* Grade picker */}
-          <Text className="text-xs font-semibold text-gray-400 uppercase mb-2">
-            Grade
-          </Text>
+          {/* Grade */}
+          <Text style={styles.sectionLabel}>Grade</Text>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            className="mb-4"
+            style={{ marginBottom: 16 }}
             contentContainerStyle={{ gap: 8 }}
           >
             {GRADES.map((g) => (
               <TouchableOpacity
                 key={g}
                 onPress={() => setGrade(g)}
-                className="rounded-full px-4 py-2"
-                style={{
-                  backgroundColor: grade === g ? "#6366f1" : "#e5e7eb",
-                }}
+                style={[
+                  styles.gradePill,
+                  { backgroundColor: grade === g ? "#6366f1" : "#e5e7eb" },
+                ]}
               >
                 <Text
-                  className="text-sm font-semibold"
-                  style={{ color: grade === g ? "#fff" : "#4b5563" }}
+                  style={[
+                    styles.gradePillText,
+                    { color: grade === g ? "#fff" : "#4b5563" },
+                  ]}
                 >
                   {g}
                 </Text>
@@ -189,12 +260,10 @@ export default function CreateRouteScreen() {
             ))}
           </ScrollView>
 
-          {/* Name */}
-          <Text className="text-xs font-semibold text-gray-400 uppercase mb-1">
-            Route Name *
-          </Text>
+          {/* Route name */}
+          <Text style={styles.sectionLabel}>Route name *</Text>
           <TextInput
-            className="border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-800 bg-white mb-4"
+            style={styles.textInput}
             placeholder="e.g. The Crimper"
             placeholderTextColor="#9ca3af"
             value={name}
@@ -203,35 +272,158 @@ export default function CreateRouteScreen() {
           />
 
           {/* Description */}
-          <Text className="text-xs font-semibold text-gray-400 uppercase mb-1">
-            Description (optional)
-          </Text>
+          <Text style={styles.sectionLabel}>Description (optional)</Text>
           <TextInput
-            className="border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-800 bg-white mb-6"
+            style={[styles.textInput, { height: 72, textAlignVertical: "top" }]}
             placeholder="Describe the movement or style..."
             placeholderTextColor="#9ca3af"
             value={description}
             onChangeText={setDescription}
             multiline
             numberOfLines={3}
-            textAlignVertical="top"
           />
 
-          {/* Save button */}
+          {/* Save */}
           <TouchableOpacity
             onPress={save}
-            disabled={saving || !name.trim()}
-            className="bg-indigo-600 rounded-xl py-4 items-center mb-8"
-            style={{ opacity: saving || !name.trim() ? 0.5 : 1 }}
+            disabled={saving || !canSave}
+            style={[styles.saveBtn, { opacity: saving || !canSave ? 0.45 : 1 }]}
           >
             {saving ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text className="text-white font-bold text-base">Save Route</Text>
+              <Text style={styles.saveBtnText}>Save route</Text>
             )}
           </TouchableOpacity>
         </ScrollView>
-      </KeyboardAvoidingView>
+      </Animated.View>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  holdCountBadge: {
+    position: "absolute",
+    right: 12,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+  },
+  holdCountText: { color: "#fff", fontSize: 12, fontWeight: "600" },
+
+  hintBadge: {
+    position: "absolute",
+    left: 12,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  hintText: { color: "#fff", fontSize: 12 },
+
+  colorPickerRow: {
+    position: "absolute",
+    bottom: 16,
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 16,
+    paddingVertical: 8,
+  },
+  colorDot: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 3,
+    elevation: 4,
+  },
+
+  openFormBtn: {
+    position: "absolute",
+    bottom: 80,
+    right: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.65)",
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    gap: 6,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  openFormBtnText: { color: "#fff", fontWeight: "600", fontSize: 14 },
+
+  formSheet: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: FORM_HEIGHT,
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 20,
+  },
+  sheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+  handleBar: {
+    width: 40,
+    height: 4,
+    backgroundColor: "#e5e7eb",
+    borderRadius: 2,
+  },
+  doneText: { color: "#6366f1", fontWeight: "600", fontSize: 15 },
+
+  formContent: { padding: 16, paddingBottom: 32 },
+
+  sectionLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#9ca3af",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+  gradePill: { borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8 },
+  gradePillText: { fontSize: 14, fontWeight: "600" },
+
+  textInput: {
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 14,
+    color: "#111827",
+    backgroundColor: "#fff",
+    marginBottom: 16,
+  },
+
+  saveBtn: {
+    backgroundColor: "#6366f1",
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: "center",
+    marginTop: 4,
+  },
+  saveBtnText: { color: "#fff", fontWeight: "700", fontSize: 16 },
+});

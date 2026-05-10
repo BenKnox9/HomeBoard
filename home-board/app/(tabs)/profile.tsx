@@ -211,14 +211,14 @@ export default function ProfileScreen() {
               className="flex-1 bg-gray-100 rounded-xl py-2 items-center"
             >
               <Text className="text-gray-600 font-medium text-sm">
-                Change Board
+                Change board
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => setShowAddBoard(true)}
               className="flex-1 bg-indigo-600 rounded-xl py-2 items-center"
             >
-              <Text className="text-white font-medium text-sm">Add Board</Text>
+              <Text className="text-white font-medium text-sm">Add board</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -233,7 +233,7 @@ export default function ProfileScreen() {
             </Text>
             <TouchableOpacity onPress={() => setShowAddPlaylist(true)}>
               <Text className="text-indigo-600 text-sm font-semibold">
-                + New Playlist
+                + New playlist
               </Text>
             </TouchableOpacity>
           </View>
@@ -308,7 +308,7 @@ export default function ProfileScreen() {
       {likedRoutes.length > 0 && (
         <View className="mx-4 mt-6 mb-2">
           <Text className="text-xs font-semibold text-gray-400 uppercase mb-3">
-            Liked Routes
+            Liked routes
           </Text>
           {likedRoutes.map((r: any) => (
             <TouchableOpacity
@@ -350,21 +350,21 @@ export default function ProfileScreen() {
         <View className="bg-white rounded-2xl p-4">
           <View className="flex-row mb-4">
             <StatBox
-              label="Days Climbed"
+              label="Days climbed"
               value={String(uniqueDays)}
             />
             <StatBox
-              label="Total Ascents"
+              label="Total ascents"
               value={String(ascents.length)}
             />
             <StatBox
-              label="Climbs / Session"
+              label="Climbs / session"
               value={climbsPerSession}
             />
           </View>
 
           <Text className="text-xs font-semibold text-gray-400 uppercase mb-3">
-            Ascents by Grade
+            Ascents by grade
           </Text>
           {GRADES.map((g) => {
             const gradeAscents = ascents.filter(
@@ -424,7 +424,7 @@ export default function ProfileScreen() {
         >
           <View className="bg-white rounded-t-3xl p-6">
             <Text className="text-lg font-bold text-gray-800 mb-4">
-              Select a Board
+              Select a board
             </Text>
             {allBoards.length === 0 ? (
               <Text className="text-gray-400 text-center py-4">
@@ -474,7 +474,7 @@ export default function ProfileScreen() {
           />
           <View className="bg-white rounded-t-3xl p-6">
             <Text className="text-lg font-bold text-gray-800 mb-4">
-              Add a Board
+              Add a board
             </Text>
             <Text className="text-xs font-semibold text-gray-400 uppercase mb-1">
               Name
