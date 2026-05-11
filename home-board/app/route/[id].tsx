@@ -11,7 +11,7 @@ import { id } from "@instantdb/react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { router, useLocalSearchParams } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
@@ -147,7 +147,7 @@ export default function RouteDetailScreen() {
   // Transition state — two independent layers slide out/in so there's no reset flash
   const [outgoingRouteId, setOutgoingRouteId] = useState<string | null>(null);
   const [incomingRouteId, setIncomingRouteId] = useState<string | null>(null);
-  const isTransitioning = incomingRouteId !== null;
+
 
   // Each layer gets its own translateX so they never need a shared reset
   const outgoingX = useSharedValue(0);
@@ -157,6 +157,13 @@ export default function RouteDetailScreen() {
   }));
   const incomingStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: incomingX.value }],
+  }));
+  // The "current" layer is always mounted to avoid a gap-frame flash when the
+  // incoming Animated.View unmounts. It's hidden (opacity 0) during the swipe
+  // animation so only the outgoing/incoming slide layers are visible.
+  const currentLayerOpacity = useSharedValue(1);
+  const currentLayerStyle = useAnimatedStyle(() => ({
+    opacity: currentLayerOpacity.value,
   }));
 
   // Zoom/pan for the static board photo
@@ -193,6 +200,7 @@ export default function RouteDetailScreen() {
             ascents: { user: {} },
             likes: { user: {} },
             comments: { user: {} },
+            creator: {},
           },
           $users: {
             $: { where: { id: user.id } },
@@ -204,8 +212,21 @@ export default function RouteDetailScreen() {
   );
 
   const currentRoute = data?.routes?.find((r: any) => r.id === displayedId);
-  const prevRoute = data?.routes?.find((r: any) => r.id === prevId);
-  const nextRoute = data?.routes?.find((r: any) => r.id === nextId);
+
+  // Board photo is the same for every route — derive it once from any loaded route
+  // and memoize the source object so the Image never receives a new prop during swipes.
+  const photoUrl = useMemo(
+    () =>
+      (data?.routes?.find((r: any) => r.board?.photo?.url)?.board?.photo
+        ?.url as string | undefined),
+    // Only recompute if the URL string itself changes, not on every data update
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [data?.routes?.find((r: any) => r.board?.photo?.url)?.board?.photo?.url]
+  );
+  const imageSource = useMemo(
+    () => (photoUrl ? { uri: photoUrl } : undefined),
+    [photoUrl]
+  );
 
   const switchToRoute = useCallback(
     (targetId: string) => {
@@ -215,17 +236,26 @@ export default function RouteDetailScreen() {
       translateY.value = 0;
       savedTX.value = 0;
       savedTY.value = 0;
-      // Clear transition state — React will re-render and show the normal layer.
-      // outgoingX / incomingX are NOT reset here to avoid flashing old content at
-      // center before React re-renders; the transition layers are unmounted first.
+      // Only update displayedId here. Clearing the transition layers and restoring
+      // the current layer's opacity is deferred to a useEffect that runs after React
+      // has committed the new currentRoute content — this ensures the current layer
+      // already shows the new dots before incoming unmounts, eliminating any flash.
       setDisplayedId(targetId);
-      setOutgoingRouteId(null);
-      setIncomingRouteId(null);
       setFalls(0);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
+
+  // Phase 2 of the transition: runs after React has rendered the new currentRoute.
+  // At this point currentRoute is correct, so we can safely reveal the current layer
+  // and remove the slide layers — both changes are atomic in the same commit.
+  useEffect(() => {
+    currentLayerOpacity.value = 1;
+    setOutgoingRouteId(null);
+    setIncomingRouteId(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayedId]);
 
   const handleSwipeEnd = useCallback(
     (velocityX: number, velocityY: number, currentScale: number) => {
@@ -241,6 +271,10 @@ export default function RouteDetailScreen() {
       // Capture current displayed route as the outgoing route before state changes
       setOutgoingRouteId(displayedId);
       setIncomingRouteId(targetId);
+
+      // Hide the always-mounted current layer so only the animated slide layers
+      // are visible during the transition — prevents old dots showing through.
+      currentLayerOpacity.value = 0;
 
       // Position outgoing at 0 (current center), incoming off the correct edge
       outgoingX.value = 0;
@@ -387,7 +421,6 @@ export default function RouteDetailScreen() {
   );
   const userPlaylists: any[] = currentUser?.playlists ?? [];
   const holds = parseHolds(currentRoute.holds);
-  const photoUrl = currentRoute.board?.photo?.url as string | undefined;
 
   // ── Actions ──────────────────────────────────────────────────────────────
 
@@ -484,7 +517,7 @@ export default function RouteDetailScreen() {
           <View style={StyleSheet.absoluteFill} collapsable={false}>
             <Animated.View style={[StyleSheet.absoluteFill, zoomStyle]}>
               <Image
-                source={photoUrl ? { uri: photoUrl } : undefined}
+                source={imageSource}
                 style={{ width: "100%", height: "100%", backgroundColor: "#000" }}
                 contentFit="contain"
                 onLoad={(e: any) => {
@@ -494,13 +527,12 @@ export default function RouteDetailScreen() {
                 }}
               />
 
-              {/* Dots only (no info bar) — they zoom + pan with the image */}
-              {!isTransitioning && (
-                <View style={StyleSheet.absoluteFill} pointerEvents="none">
-                  {renderHoldDots(holds)}
-                </View>
-              )}
-              {isTransitioning && outgoingRouteId && (() => {
+              {/* Current dots — always rendered, opacity-gated during transition */}
+              <Animated.View style={[StyleSheet.absoluteFill, currentLayerStyle]} pointerEvents="none">
+                {renderHoldDots(holds)}
+              </Animated.View>
+              {/* Outgoing slides away; incoming slides in on top */}
+              {outgoingRouteId && (() => {
                 const outRoute = data?.routes?.find((r: any) => r.id === outgoingRouteId);
                 return outRoute ? (
                   <Animated.View style={[StyleSheet.absoluteFill, outgoingStyle]} pointerEvents="none">
@@ -508,7 +540,7 @@ export default function RouteDetailScreen() {
                   </Animated.View>
                 ) : null;
               })()}
-              {isTransitioning && incomingRouteId && (() => {
+              {incomingRouteId && (() => {
                 const inRoute = data?.routes?.find((r: any) => r.id === incomingRouteId);
                 return inRoute ? (
                   <Animated.View style={[StyleSheet.absoluteFill, incomingStyle]} pointerEvents="none">
@@ -520,13 +552,11 @@ export default function RouteDetailScreen() {
           </View>
         </GestureDetector>
 
-        {/* Route info bar — outside zoom layer so it stays anchored at the bottom */}
-        {!isTransitioning && (
-          <View style={StyleSheet.absoluteFill} pointerEvents="none">
-            <RouteInfoBar route={currentRoute} userId={user?.id} />
-          </View>
-        )}
-        {isTransitioning && outgoingRouteId && (() => {
+        {/* Route info bar — outside zoom, always rendered, opacity-gated during transition */}
+        <Animated.View style={[StyleSheet.absoluteFill, currentLayerStyle]} pointerEvents="none">
+          <RouteInfoBar route={currentRoute} userId={user?.id} />
+        </Animated.View>
+        {outgoingRouteId && (() => {
           const outRoute = data?.routes?.find((r: any) => r.id === outgoingRouteId);
           return outRoute ? (
             <Animated.View style={[StyleSheet.absoluteFill, outgoingStyle]} pointerEvents="none">
@@ -534,7 +564,7 @@ export default function RouteDetailScreen() {
             </Animated.View>
           ) : null;
         })()}
-        {isTransitioning && incomingRouteId && (() => {
+        {incomingRouteId && (() => {
           const inRoute = data?.routes?.find((r: any) => r.id === incomingRouteId);
           return inRoute ? (
             <Animated.View style={[StyleSheet.absoluteFill, incomingStyle]} pointerEvents="none">
@@ -678,9 +708,22 @@ export default function RouteDetailScreen() {
             onPress={() => setShowInfo(false)}
           />
           <View style={styles.sheet}>
-            <View style={styles.handle} />
+            {/* Draggable handle — pan down to dismiss */}
+            <GestureDetector
+              gesture={Gesture.Pan()
+                .activeOffsetY([0, 15])
+                .onEnd((e) => {
+                  if (e.translationY > 60 || e.velocityY > 600) {
+                    runOnJS(setShowInfo)(false);
+                  }
+                })}
+            >
+              <View style={{ paddingTop: 12, paddingBottom: 8, alignItems: "center" }}>
+                <View style={styles.handle} />
+              </View>
+            </GestureDetector>
             <ScrollView
-              contentContainerStyle={{ padding: 20 }}
+              contentContainerStyle={{ padding: 20, paddingTop: 4 }}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >
@@ -698,6 +741,22 @@ export default function RouteDetailScreen() {
                   small
                 />
               </View>
+
+              {/* Route creator */}
+              {(() => {
+                const creator = (currentRoute as any).creator;
+                const name = creator?.username
+                  ? `@${creator.username}`
+                  : creator?.email
+                  ? (creator.email as string).split("@")[0]
+                  : null;
+                return name ? (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 16 }}>
+                    <Ionicons name="person-outline" size={13} color="#9ca3af" />
+                    <Text style={{ fontSize: 13, color: "#9ca3af" }}>Set by {name}</Text>
+                  </View>
+                ) : null;
+              })()}
 
               <TouchableOpacity
                 onPress={toggleLike}

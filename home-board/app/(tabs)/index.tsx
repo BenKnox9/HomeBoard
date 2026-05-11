@@ -9,6 +9,7 @@ import {
   FlatList,
   ScrollView,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -24,6 +25,7 @@ export default function RoutesScreen() {
   const { user } = db.useAuth();
   const [gradeFilter, setGradeFilter] = useState<string | null>(null);
   const [sort, setSort] = useState<SortState | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const { isLoading, error, data } = db.useQuery(
     user
@@ -33,6 +35,7 @@ export default function RoutesScreen() {
             selectedBoard: {
               routes: {
                 ascents: {},
+                creator: {},
               },
             },
           },
@@ -42,13 +45,10 @@ export default function RoutesScreen() {
 
   function cycleSort(field: SortField) {
     if (!sort || sort.field !== field) {
-      // First press on this field → descending
       setSort({ field, dir: "desc" });
     } else if (sort.dir === "desc") {
-      // Second press → ascending
       setSort({ field, dir: "asc" });
     } else {
-      // Third press → off
       setSort(null);
     }
   }
@@ -70,10 +70,24 @@ export default function RoutesScreen() {
   }
 
   const selectedBoard = data?.$users?.[0]?.selectedBoard;
-  const allRoutes = selectedBoard?.routes ?? [];
+  const allRoutes = (selectedBoard?.routes ?? []) as any[];
+
+  const q = searchQuery.trim().toLowerCase();
+  const isUsernameSearch = q.startsWith("@");
+  const searchTerm = isUsernameSearch ? q.slice(1) : q;
 
   const filteredRoutes = allRoutes
-    .filter((r) => gradeFilter === null || r.grade === gradeFilter)
+    .filter((r) => {
+      if (gradeFilter !== null && r.grade !== gradeFilter) return false;
+      if (!searchTerm) return true;
+      if (isUsernameSearch) {
+        return r.creator?.username?.toLowerCase().includes(searchTerm);
+      }
+      return (
+        r.name?.toLowerCase().includes(searchTerm) ||
+        r.creator?.username?.toLowerCase().includes(searchTerm)
+      );
+    })
     .sort((a, b) => {
       if (!sort) return 0;
       if (sort.field === "grade") {
@@ -148,6 +162,26 @@ export default function RoutesScreen() {
           <SortButton field="ascents" label="By ascents" />
         </View>
 
+        {/* Search bar */}
+        <View className="flex-row items-center mx-4 mt-2 bg-gray-100 rounded-xl px-3 gap-x-2">
+          <Ionicons name="search-outline" size={16} color="#9ca3af" />
+          <TextInput
+            className="flex-1 py-2 text-sm text-gray-800"
+            placeholder="Search by name or @username…"
+            placeholderTextColor="#9ca3af"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            returnKeyType="search"
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchQuery("")}>
+              <Ionicons name="close-circle" size={16} color="#9ca3af" />
+            </TouchableOpacity>
+          )}
+        </View>
+
         {/* Grade filter pills */}
         <ScrollView
           horizontal
@@ -203,6 +237,7 @@ export default function RoutesScreen() {
             />
           )}
           contentContainerStyle={{ padding: 16 }}
+          keyboardShouldPersistTaps="handled"
         />
       )}
 

@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { GRADES, gradeBadgeColor } from "@/lib/grades";
 import { id } from "@instantdb/react-native";
+import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import { useState } from "react";
@@ -17,6 +18,93 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from "react-native-reanimated";
+
+// ── Swipeable playlist row ────────────────────────────────────────────────────
+
+function SwipeablePlaylistRow({
+  pl,
+  onPress,
+  onDeleteRequest,
+}: {
+  pl: any;
+  onPress: () => void;
+  onDeleteRequest: () => void;
+}) {
+  const translateX = useSharedValue(0);
+  const rowStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+  }));
+
+  const pan = Gesture.Pan()
+    .activeOffsetX([-10, 10])
+    .failOffsetY([-5, 5])
+    .onUpdate((e) => {
+      translateX.value = Math.max(-80, Math.min(0, e.translationX));
+    })
+    .onEnd((e) => {
+      if (e.translationX < -40 || e.velocityX < -500) {
+        translateX.value = withSpring(-80, { damping: 20, stiffness: 200 });
+      } else {
+        translateX.value = withSpring(0, { damping: 20, stiffness: 200 });
+      }
+    });
+
+  return (
+    <View style={{ marginBottom: 8 }}>
+      {/* Delete button sits behind the row */}
+      <View
+        style={{
+          position: "absolute",
+          right: 0,
+          top: 0,
+          bottom: 0,
+          width: 80,
+          backgroundColor: "#ef4444",
+          borderRadius: 16,
+          justifyContent: "center",
+          alignItems: "center",
+        }}
+      >
+        <TouchableOpacity
+          onPress={() => {
+            translateX.value = withSpring(0);
+            onDeleteRequest();
+          }}
+          style={{ flex: 1, width: "100%", justifyContent: "center", alignItems: "center" }}
+        >
+          <Text style={{ color: "#fff", fontWeight: "600", fontSize: 13 }}>Delete</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Swipeable row */}
+      <GestureDetector gesture={pan}>
+        <Animated.View style={rowStyle}>
+          <TouchableOpacity
+            onPress={onPress}
+            className="bg-white rounded-2xl p-4 flex-row items-center"
+          >
+            <View className="flex-1">
+              <Text className="text-gray-800 font-semibold">{pl.name}</Text>
+              <Text className="text-gray-400 text-xs mt-0.5">
+                {pl.routes?.length ?? 0} route
+                {(pl.routes?.length ?? 0) !== 1 ? "s" : ""}
+              </Text>
+            </View>
+            <Text className="text-gray-300 text-lg">›</Text>
+          </TouchableOpacity>
+        </Animated.View>
+      </GestureDetector>
+    </View>
+  );
+}
+
+// ── Profile screen ────────────────────────────────────────────────────────────
 
 export default function ProfileScreen() {
   const { user } = db.useAuth();
@@ -32,6 +120,7 @@ export default function ProfileScreen() {
             },
             playlists: {
               routes: {},
+              board: {},
             },
             likes: {
               route: {
@@ -51,6 +140,8 @@ export default function ProfileScreen() {
   const [newBoardDesc, setNewBoardDesc] = useState("");
   const [newPlaylistName, setNewPlaylistName] = useState("");
   const [saving, setSaving] = useState(false);
+  const [editingUsername, setEditingUsername] = useState(false);
+  const [usernameInput, setUsernameInput] = useState("");
 
   if (isLoading) {
     return (
@@ -64,13 +155,12 @@ export default function ProfileScreen() {
   const selectedBoard = currentUser?.selectedBoard;
   const ascents = currentUser?.ascents ?? [];
   const allBoards = data?.boards ?? [];
+  const currentUsername = (currentUser as any)?.username as string | undefined;
 
-  // Playlists for the active board only
   const playlists = (currentUser?.playlists ?? []).filter(
     (pl: any) => pl.board?.id === selectedBoard?.id || selectedBoard == null
   );
 
-  // Liked routes (deduplicated — a like has one route)
   const likedRoutes = (currentUser?.likes ?? [])
     .map((l: any) => l.route)
     .filter(Boolean)
@@ -79,12 +169,10 @@ export default function ProfileScreen() {
         arr.findIndex((x) => x.id === r.id) === i
     );
 
-  // Stats
   const uniqueDays = new Set(
     ascents.map((a: any) => new Date(a.loggedAt).toDateString())
   ).size;
 
-  // Sessions: consecutive ascents within 1 hour of each other form a session.
   const SESSION_GAP_MS = 60 * 60 * 1000;
   const sessions = (() => {
     if (ascents.length === 0) return 0;
@@ -102,6 +190,24 @@ export default function ProfileScreen() {
   const climbsPerSession =
     sessions > 0 ? (ascents.length / sessions).toFixed(1) : "0";
 
+  async function saveUsername() {
+    if (!user) return;
+    const trimmed = usernameInput.trim();
+    if (!trimmed) return;
+    try {
+      await db.transact([db.tx.$users[user.id].update({ username: trimmed } as any)]);
+      setEditingUsername(false);
+    } catch (e: any) {
+      const msg = e.message ?? "";
+      Alert.alert(
+        "Error",
+        msg.toLowerCase().includes("unique")
+          ? "That username is already taken. Please choose another."
+          : msg || "Failed to save username."
+      );
+    }
+  }
+
   async function selectBoard(boardId: string) {
     if (!user) return;
     await db.transact([
@@ -112,6 +218,16 @@ export default function ProfileScreen() {
 
   async function addBoard() {
     if (!user || !newBoardName.trim()) return;
+
+    // Client-side uniqueness check for board name
+    const nameExists = (allBoards as any[]).some(
+      (b: any) => b.name.toLowerCase() === newBoardName.trim().toLowerCase()
+    );
+    if (nameExists) {
+      Alert.alert("Duplicate name", "A board with that name already exists.");
+      return;
+    }
+
     setSaving(true);
     try {
       const boardId = id();
@@ -178,12 +294,70 @@ export default function ProfileScreen() {
     setShowAddPlaylist(false);
   }
 
+  function deletePlaylist(plId: string) {
+    Alert.alert(
+      "Delete playlist",
+      "Are you sure you want to delete this playlist? This cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => {
+            db.transact([db.tx.playlists[plId].delete()]);
+          },
+        },
+      ]
+    );
+  }
+
   return (
     <ScrollView className="flex-1 bg-gray-50">
       {/* Header */}
       <View className="bg-white pt-14 px-4 pb-6 border-b border-gray-100">
         <Text className="text-xl font-bold text-gray-800">Profile</Text>
         <Text className="text-gray-400 text-sm mt-1">{user?.email}</Text>
+
+        {/* Username */}
+        {editingUsername ? (
+          <View className="flex-row items-center mt-3 gap-x-2">
+            <TextInput
+              className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 bg-gray-50"
+              placeholder="Choose a username"
+              placeholderTextColor="#9ca3af"
+              value={usernameInput}
+              onChangeText={setUsernameInput}
+              autoFocus
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="done"
+              onSubmitEditing={saveUsername}
+            />
+            <TouchableOpacity
+              onPress={saveUsername}
+              className="bg-indigo-600 rounded-xl px-3 py-2"
+            >
+              <Text className="text-white font-semibold text-sm">Save</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setEditingUsername(false)}>
+              <Text className="text-gray-400 text-sm">Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <TouchableOpacity
+            onPress={() => {
+              setUsernameInput(currentUsername ?? "");
+              setEditingUsername(true);
+            }}
+            className="flex-row items-center mt-2 gap-x-1"
+          >
+            <Text className="text-gray-600 text-sm">
+              {currentUsername ? `@${currentUsername}` : "Set username"}
+            </Text>
+            <Ionicons name="pencil-outline" size={12} color="#9ca3af" />
+          </TouchableOpacity>
+        )}
+
         <TouchableOpacity
           onPress={() => db.auth.signOut()}
           className="mt-4 border border-gray-200 rounded-xl py-2 items-center"
@@ -195,7 +369,7 @@ export default function ProfileScreen() {
       {/* Board Management */}
       <View className="mx-4 mt-6 mb-2">
         <Text className="text-xs font-semibold text-gray-400 uppercase mb-3">
-          Your Board
+          Your board
         </Text>
         <View className="bg-white rounded-2xl p-4">
           {selectedBoard ? (
@@ -280,25 +454,17 @@ export default function ProfileScreen() {
             </View>
           ) : (
             playlists.map((pl: any) => (
-              <TouchableOpacity
+              <SwipeablePlaylistRow
                 key={pl.id}
+                pl={pl}
                 onPress={() =>
                   router.push({
                     pathname: "/playlist/[id]",
                     params: { id: pl.id },
                   })
                 }
-                className="bg-white rounded-2xl p-4 mb-2 flex-row items-center"
-              >
-                <View className="flex-1">
-                  <Text className="text-gray-800 font-semibold">{pl.name}</Text>
-                  <Text className="text-gray-400 text-xs mt-0.5">
-                    {pl.routes?.length ?? 0} route
-                    {(pl.routes?.length ?? 0) !== 1 ? "s" : ""}
-                  </Text>
-                </View>
-                <Text className="text-gray-300 text-lg">›</Text>
-              </TouchableOpacity>
+                onDeleteRequest={() => deletePlaylist(pl.id)}
+              />
             ))
           )}
         </View>
@@ -349,18 +515,9 @@ export default function ProfileScreen() {
         </Text>
         <View className="bg-white rounded-2xl p-4">
           <View className="flex-row mb-4">
-            <StatBox
-              label="Days climbed"
-              value={String(uniqueDays)}
-            />
-            <StatBox
-              label="Total ascents"
-              value={String(ascents.length)}
-            />
-            <StatBox
-              label="Climbs / session"
-              value={climbsPerSession}
-            />
+            <StatBox label="Days climbed" value={String(uniqueDays)} />
+            <StatBox label="Total ascents" value={String(ascents.length)} />
+            <StatBox label="Climbs / session" value={climbsPerSession} />
           </View>
 
           <Text className="text-xs font-semibold text-gray-400 uppercase mb-3">
@@ -431,7 +588,7 @@ export default function ProfileScreen() {
                 No boards available. Add one first.
               </Text>
             ) : (
-              allBoards.map((b: any) => (
+              (allBoards as any[]).map((b: any) => (
                 <TouchableOpacity
                   key={b.id}
                   onPress={() => selectBoard(b.id)}
@@ -481,7 +638,7 @@ export default function ProfileScreen() {
             </Text>
             <TextInput
               className="border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-800 bg-gray-50 mb-3"
-              placeholder="e.g. Garage Wall"
+              placeholder="e.g. Garage wall"
               placeholderTextColor="#9ca3af"
               value={newBoardName}
               onChangeText={setNewBoardName}

@@ -1,11 +1,10 @@
 import RouteCard from "@/components/RouteCard";
 import { db } from "@/lib/db";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import {
   ActivityIndicator,
   FlatList,
   Text,
-  TouchableOpacity,
   View,
 } from "react-native";
 
@@ -49,18 +48,21 @@ export default function PlaylistDetailScreen() {
 
   return (
     <View className="flex-1 bg-gray-50">
-      {/* Header */}
-      <View className="pt-14 px-4 pb-4 bg-white border-b border-gray-100 flex-row items-center">
-        <TouchableOpacity onPress={() => router.back()} className="mr-3">
-          <Text className="text-indigo-600 text-base">‹ Back</Text>
-        </TouchableOpacity>
-        <View className="flex-1">
-          <Text className="text-xl font-bold text-gray-800">{playlist.name}</Text>
-          <Text className="text-gray-400 text-xs mt-0.5">
-            {routes.length} route{routes.length !== 1 ? "s" : ""}
-          </Text>
-        </View>
-      </View>
+      {/* Set the native header title dynamically — playlist name + route count */}
+      <Stack.Screen
+        options={{
+          headerTitle: () => (
+            <View style={{ alignItems: "center" }}>
+              <Text style={{ fontWeight: "700", fontSize: 17, color: "#111827" }}>
+                {playlist.name}
+              </Text>
+              <Text style={{ fontSize: 12, color: "#9ca3af", marginTop: 1 }}>
+                {routes.length} route{routes.length !== 1 ? "s" : ""}
+              </Text>
+            </View>
+          ),
+        }}
+      />
 
       {routes.length === 0 ? (
         <View className="flex-1 items-center justify-center">

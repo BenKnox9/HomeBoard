@@ -18,6 +18,7 @@ const _schema = i.schema({
       email: i.string().unique().indexed().optional(),
       imageURL: i.string().optional(),
       type: i.string().optional(),
+      username: i.string().unique().indexed().optional(),
     }),
     ascents: i.entity({
       attempts: i.number(),

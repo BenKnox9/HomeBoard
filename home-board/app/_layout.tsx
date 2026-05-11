@@ -36,14 +36,14 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false, title: "Profile" }} />
         <Stack.Screen
           name="route/[id]"
           options={{ headerShown: false }}
         />
         <Stack.Screen
           name="playlist/[id]"
-          options={{ headerTitle: "Playlist" }}
+          options={{}}
         />
         <Stack.Screen
           name="create-route"

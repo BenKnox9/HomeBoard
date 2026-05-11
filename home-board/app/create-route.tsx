@@ -72,7 +72,7 @@ export default function CreateRouteScreen() {
 
   const { isLoading, data } = db.useQuery(
     user
-      ? { $users: { $: { where: { id: user.id } }, selectedBoard: { photo: {} } } }
+      ? { $users: { $: { where: { id: user.id } }, selectedBoard: { photo: {}, routes: {} } } }
       : null
   );
 
@@ -87,6 +87,11 @@ export default function CreateRouteScreen() {
     if (!user || !board) return;
     if (!name.trim()) {
       Alert.alert("Missing info", "Please enter a route name.");
+      return;
+    }
+    const existingRoutes = ((board as any)?.routes ?? []) as any[];
+    if (existingRoutes.some((r: any) => r.name.toLowerCase() === name.trim().toLowerCase())) {
+      Alert.alert("Duplicate name", "A route with this name already exists on your board. Please choose a different name.");
       return;
     }
     if (!hasGreenHold || !hasRedHold) {
