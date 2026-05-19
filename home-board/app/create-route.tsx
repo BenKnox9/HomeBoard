@@ -1,4 +1,4 @@
-import HoldOverlay, { Hold, HoldColor } from "@/components/HoldOverlay";
+import HoldOverlay, { Hold, HoldColor, HoldSize, HOLD_SIZES } from "@/components/HoldOverlay";
 import { db } from "@/lib/db";
 import { GRADES } from "@/lib/grades";
 import { id } from "@instantdb/react-native";
@@ -40,6 +40,7 @@ export default function CreateRouteScreen() {
 
   const [holds, setHolds] = useState<Hold[]>([]);
   const [activeColor, setActiveColor] = useState<HoldColor>("green");
+  const [activeSize, setActiveSize] = useState<HoldSize>("medium");
   const [grade, setGrade] = useState("V0");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -172,6 +173,7 @@ export default function CreateRouteScreen() {
         holds={holds}
         mode="interactive"
         activeColor={activeColor}
+        activeSize={activeSize}
         onHoldsChange={setHolds}
       />
 
@@ -207,6 +209,34 @@ export default function CreateRouteScreen() {
           />
         ))}
       </View>
+
+      {/* Size picker — bottom left, only shown when form is closed */}
+      {!formOpen && (
+        <View style={styles.sizePicker}>
+          {(["small", "medium", "large"] as HoldSize[]).map((s) => {
+            const dotSize = HOLD_SIZES[s];
+            const active = activeSize === s;
+            return (
+              <TouchableOpacity
+                key={s}
+                onPress={() => setActiveSize(s)}
+                style={styles.sizePickerBtn}
+              >
+                <View
+                  style={{
+                    width: dotSize * 0.7 + 8,
+                    height: dotSize * 0.7 + 8,
+                    borderRadius: (dotSize * 0.7 + 8) / 2,
+                    backgroundColor: active ? "rgba(255,255,255,0.25)" : "transparent",
+                    borderWidth: 2,
+                    borderColor: active ? "#fff" : "rgba(255,255,255,0.4)",
+                  }}
+                />
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      )}
 
       {/* "Route details" toggle — only shown when form is closed */}
       {!formOpen && (
@@ -346,6 +376,30 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.4,
     shadowRadius: 3,
     elevation: 4,
+  },
+
+  sizePicker: {
+    position: "absolute",
+    bottom: 80,
+    left: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.65)",
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 6,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  sizePickerBtn: {
+    alignItems: "center",
+    justifyContent: "center",
+    width: 36,
+    height: 36,
   },
 
   openFormBtn: {

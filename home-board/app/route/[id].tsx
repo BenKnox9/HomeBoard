@@ -2,7 +2,7 @@ import {
   ContainArea,
   Hold,
   HOLD_COLORS,
-  HOLD_SIZE,
+  HOLD_SIZES,
   colorWithAlpha,
 } from "@/components/HoldOverlay";
 import { db } from "@/lib/db";
@@ -136,6 +136,7 @@ export default function RouteDetailScreen() {
   const [falls, setFalls] = useState(0);
   const [logging, setLogging] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
+  const [holdsTransparent, setHoldsTransparent] = useState(false);
   const [showPlaylistModal, setShowPlaylistModal] = useState(false);
   const [commentText, setCommentText] = useState("");
   const [submittingComment, setSubmittingComment] = useState(false);
@@ -356,29 +357,30 @@ export default function RouteDetailScreen() {
     }
   }
 
-  function renderHoldDots(holdsToRender: Hold[]) {
+  function renderHoldDots(holdsToRender: Hold[], transparent = false) {
     const area = computeContainArea();
     return holdsToRender.map((hold) => {
       const solidColor = HOLD_COLORS[hold.color];
+      const dotSize = HOLD_SIZES[hold.size ?? "medium"];
       return (
         <View
           key={hold.id}
           pointerEvents="none"
           style={{
             position: "absolute",
-            width: HOLD_SIZE,
-            height: HOLD_SIZE,
-            borderRadius: HOLD_SIZE / 2,
-            backgroundColor: colorWithAlpha(solidColor, 0.15),
+            width: dotSize,
+            height: dotSize,
+            borderRadius: dotSize / 2,
+            backgroundColor: transparent ? "transparent" : colorWithAlpha(solidColor, 0.15),
             borderWidth: 3,
-            borderColor: solidColor,
-            left: area.offsetX + hold.x * area.displayW - HOLD_SIZE / 2,
-            top: area.offsetY + hold.y * area.displayH - HOLD_SIZE / 2,
+            borderColor: transparent ? colorWithAlpha(solidColor, 0.55) : solidColor,
+            left: area.offsetX + hold.x * area.displayW - dotSize / 2,
+            top: area.offsetY + hold.y * area.displayH - dotSize / 2,
             shadowColor: "#000",
             shadowOffset: { width: 0, height: 1 },
-            shadowOpacity: 0.5,
+            shadowOpacity: transparent ? 0 : 0.5,
             shadowRadius: 3,
-            elevation: 4,
+            elevation: transparent ? 0 : 4,
           }}
         />
       );
@@ -529,7 +531,7 @@ export default function RouteDetailScreen() {
 
               {/* Current dots — always rendered, opacity-gated during transition */}
               <Animated.View style={[StyleSheet.absoluteFill, currentLayerStyle]} pointerEvents="none">
-                {renderHoldDots(holds)}
+                {renderHoldDots(holds, holdsTransparent)}
               </Animated.View>
               {/* Outgoing slides away; incoming slides in on top */}
               {outgoingRouteId && (() => {
@@ -621,6 +623,21 @@ export default function RouteDetailScreen() {
             ]}
           >
             <Ionicons name="information-circle" size={20} color="#fff" />
+          </TouchableOpacity>
+
+          {/* Eye toggle — show/hide hold transparency */}
+          <TouchableOpacity
+            onPress={() => setHoldsTransparent((v) => !v)}
+            style={[
+              styles.pill,
+              { position: "absolute", top: insets.top + 52, right: 16 },
+            ]}
+          >
+            <Ionicons
+              name={holdsTransparent ? "eye-off-outline" : "eye-outline"}
+              size={20}
+              color="#fff"
+            />
           </TouchableOpacity>
 
           {/* Swipe arrows */}

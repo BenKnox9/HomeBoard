@@ -39,6 +39,7 @@ const _schema = i.schema({
     playlists: i.entity({
       createdAt: i.number().indexed(),
       name: i.string().indexed(),
+      routeOrder: i.string().optional(),
     }),
     routes: i.entity({
       createdAt: i.number().indexed(),

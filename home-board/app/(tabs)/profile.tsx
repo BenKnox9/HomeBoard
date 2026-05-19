@@ -22,7 +22,7 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
-  withSpring,
+  withTiming,
 } from "react-native-reanimated";
 
 // ── Swipeable playlist row ────────────────────────────────────────────────────
@@ -37,6 +37,8 @@ function SwipeablePlaylistRow({
   onDeleteRequest: () => void;
 }) {
   const translateX = useSharedValue(0);
+  const savedX = useSharedValue(0);
+
   const rowStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: translateX.value }],
   }));
@@ -44,14 +46,38 @@ function SwipeablePlaylistRow({
   const pan = Gesture.Pan()
     .activeOffsetX([-10, 10])
     .failOffsetY([-5, 5])
+    .onStart(() => {
+      savedX.value = translateX.value;
+    })
     .onUpdate((e) => {
-      translateX.value = Math.max(-80, Math.min(0, e.translationX));
+      translateX.value = Math.max(-80, Math.min(0, savedX.value + e.translationX));
     })
     .onEnd((e) => {
-      if (e.translationX < -40 || e.velocityX < -500) {
-        translateX.value = withSpring(-80, { damping: 20, stiffness: 200 });
+      const finalX = savedX.value + e.translationX;
+      if (finalX < -40 || e.velocityX < -500) {
+        translateX.value = withTiming(-80, { duration: 220 });
+        savedX.value = -80;
       } else {
-        translateX.value = withSpring(0, { damping: 20, stiffness: 200 });
+        translateX.value = withTiming(0, { duration: 220 });
+        savedX.value = 0;
+      }
+    });
+
+  // Tap fires only when the finger hasn't moved enough to trigger the pan.
+  // Gesture.Race means whichever activates first wins — a clean tap (< 5px
+  // movement, lifts before pan's 10px threshold) fires onPress; a swipe
+  // activates the pan first and the tap is cancelled, so onPress never fires.
+  const tap = Gesture.Tap()
+    .runOnJS(true)
+    .maxDeltaX(5)
+    .onEnd((_, success) => {
+      if (!success) return;
+      if (Math.abs(translateX.value) > 10) {
+        // Row was open — close it instead of navigating
+        translateX.value = withTiming(0, { duration: 220 });
+        savedX.value = 0;
+      } else {
+        onPress();
       }
     });
 
@@ -73,7 +99,8 @@ function SwipeablePlaylistRow({
       >
         <TouchableOpacity
           onPress={() => {
-            translateX.value = withSpring(0);
+            translateX.value = withTiming(0);
+            savedX.value = 0;
             onDeleteRequest();
           }}
           style={{ flex: 1, width: "100%", justifyContent: "center", alignItems: "center" }}
@@ -82,13 +109,10 @@ function SwipeablePlaylistRow({
         </TouchableOpacity>
       </View>
 
-      {/* Swipeable row */}
-      <GestureDetector gesture={pan}>
+      {/* Swipeable row — Race ensures tap wins on clean press, pan wins on swipe */}
+      <GestureDetector gesture={Gesture.Race(pan, tap)}>
         <Animated.View style={rowStyle}>
-          <TouchableOpacity
-            onPress={onPress}
-            className="bg-white rounded-2xl p-4 flex-row items-center"
-          >
+          <View className="bg-white rounded-2xl p-4 flex-row items-center">
             <View className="flex-1">
               <Text className="text-gray-800 font-semibold">{pl.name}</Text>
               <Text className="text-gray-400 text-xs mt-0.5">
@@ -97,7 +121,7 @@ function SwipeablePlaylistRow({
               </Text>
             </View>
             <Text className="text-gray-300 text-lg">›</Text>
-          </TouchableOpacity>
+          </View>
         </Animated.View>
       </GestureDetector>
     </View>

@@ -10,12 +10,14 @@ import Animated, {
 } from "react-native-reanimated";
 
 export type HoldColor = "red" | "purple" | "blue" | "green";
+export type HoldSize = "small" | "medium" | "large";
 
 export interface Hold {
   id: string;
   x: number; // 0–1 fraction of the image content area (not the container)
   y: number; // 0–1 fraction of the image content area
   color: HoldColor;
+  size?: HoldSize;
 }
 
 export const HOLD_COLORS: Record<HoldColor, string> = {
@@ -26,7 +28,7 @@ export const HOLD_COLORS: Record<HoldColor, string> = {
 };
 
 export const HOLD_SIZE = 32;
-const TAP_RADIUS = 22;
+export const HOLD_SIZES: Record<HoldSize, number> = { small: 20, medium: 32, large: 48 };
 
 export function colorWithAlpha(hex: string, alpha: number): string {
   const r = parseInt(hex.slice(1, 3), 16);
@@ -47,6 +49,7 @@ interface HoldOverlayProps {
   holds: Hold[];
   mode: "interactive" | "display";
   activeColor?: HoldColor;
+  activeSize?: HoldSize;
   onHoldsChange?: (holds: Hold[]) => void;
   zoomable?: boolean; // display mode only: enable pinch-to-zoom and pan
 }
@@ -56,6 +59,7 @@ export default function HoldOverlay({
   holds,
   mode,
   activeColor = "red",
+  activeSize = "medium",
   onHoldsChange,
   zoomable = false,
 }: HoldOverlayProps) {
@@ -109,7 +113,6 @@ export default function HoldOverlay({
   function handleHoldTap(fracX: number, fracY: number) {
     if (!onHoldsChange) return;
     const area = computeContainArea();
-    // Convert fractions to display-pixel coordinates for hit testing
     const tapDX = area.offsetX + fracX * area.displayW;
     const tapDY = area.offsetY + fracY * area.displayH;
     const hitIdx = holds.findIndex((h) => {
@@ -117,12 +120,13 @@ export default function HoldOverlay({
       const holdDY = area.offsetY + h.y * area.displayH;
       const dx = holdDX - tapDX;
       const dy = holdDY - tapDY;
-      return Math.sqrt(dx * dx + dy * dy) < TAP_RADIUS;
+      const hitRadius = HOLD_SIZES[h.size ?? "medium"] / 2 + 8;
+      return Math.sqrt(dx * dx + dy * dy) < hitRadius;
     });
     if (hitIdx !== -1) {
       onHoldsChange(holds.filter((_, i) => i !== hitIdx));
     } else {
-      onHoldsChange([...holds, { id: id(), x: fracX, y: fracY, color: activeColor }]);
+      onHoldsChange([...holds, { id: id(), x: fracX, y: fracY, color: activeColor, size: activeSize }]);
     }
   }
 
@@ -210,20 +214,21 @@ export default function HoldOverlay({
     const area = computeContainArea();
     return holds.map((hold) => {
       const solidColor = HOLD_COLORS[hold.color];
+      const dotSize = HOLD_SIZES[hold.size ?? "medium"];
       return (
         <View
           key={hold.id}
           pointerEvents="none"
           style={{
             position: "absolute",
-            width: HOLD_SIZE,
-            height: HOLD_SIZE,
-            borderRadius: HOLD_SIZE / 2,
+            width: dotSize,
+            height: dotSize,
+            borderRadius: dotSize / 2,
             backgroundColor: colorWithAlpha(solidColor, 0.15),
             borderWidth: 3,
             borderColor: solidColor,
-            left: area.offsetX + hold.x * area.displayW - HOLD_SIZE / 2,
-            top: area.offsetY + hold.y * area.displayH - HOLD_SIZE / 2,
+            left: area.offsetX + hold.x * area.displayW - dotSize / 2,
+            top: area.offsetY + hold.y * area.displayH - dotSize / 2,
             shadowColor: "#000",
             shadowOffset: { width: 0, height: 1 },
             shadowOpacity: 0.5,
