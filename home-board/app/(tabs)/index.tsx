@@ -7,12 +7,17 @@ import { useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
+  InputAccessoryView,
+  Keyboard,
+  Platform,
   ScrollView,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
+
+const SEARCH_ACCESSORY_ID = "routes-search";
 
 type SortField = "grade" | "ascents";
 type SortDir = "desc" | "asc";
@@ -23,7 +28,7 @@ interface SortState {
 
 export default function RoutesScreen() {
   const { user } = db.useAuth();
-  const [gradeFilter, setGradeFilter] = useState<string | null>(null);
+  const [gradeFilters, setGradeFilters] = useState<Set<string>>(new Set());
   const [sort, setSort] = useState<SortState | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -78,7 +83,7 @@ export default function RoutesScreen() {
 
   const filteredRoutes = allRoutes
     .filter((r) => {
-      if (gradeFilter !== null && r.grade !== gradeFilter) return false;
+      if (gradeFilters.size > 0 && !gradeFilters.has(r.grade)) return false;
       if (!searchTerm) return true;
       if (isUsernameSearch) {
         return r.creator?.username?.toLowerCase().includes(searchTerm);
@@ -174,6 +179,7 @@ export default function RoutesScreen() {
             returnKeyType="search"
             autoCapitalize="none"
             autoCorrect={false}
+            inputAccessoryViewID={SEARCH_ACCESSORY_ID}
           />
           {searchQuery.length > 0 && (
             <TouchableOpacity onPress={() => setSearchQuery("")}>
@@ -187,25 +193,47 @@ export default function RoutesScreen() {
           horizontal
           showsHorizontalScrollIndicator={false}
           className="pt-2 px-4"
-          contentContainerStyle={{ gap: 8 }}
+          contentContainerStyle={{ gap: 8, paddingRight: 16 }}
         >
-          {GRADES.map((g) => (
+          {(gradeFilters.size > 0 || searchQuery.length > 0) && (
             <TouchableOpacity
-              key={g}
-              onPress={() => setGradeFilter(gradeFilter === g ? null : g)}
-              className="rounded-full px-3 py-1"
-              style={{
-                backgroundColor: gradeFilter === g ? "#6366f1" : "#e5e7eb",
+              onPress={() => {
+                setGradeFilters(new Set());
+                setSearchQuery("");
               }}
+              className="rounded-full px-3 py-1 flex-row items-center gap-x-1"
+              style={{ backgroundColor: "#fee2e2" }}
             >
-              <Text
-                className="text-xs font-semibold"
-                style={{ color: gradeFilter === g ? "#fff" : "#4b5563" }}
-              >
-                {g}
+              <Ionicons name="close" size={11} color="#ef4444" />
+              <Text className="text-xs font-semibold" style={{ color: "#ef4444" }}>
+                Clear filters
               </Text>
             </TouchableOpacity>
-          ))}
+          )}
+          {GRADES.map((g) => {
+            const active = gradeFilters.has(g);
+            return (
+              <TouchableOpacity
+                key={g}
+                onPress={() =>
+                  setGradeFilters((prev) => {
+                    const next = new Set(prev);
+                    next.has(g) ? next.delete(g) : next.add(g);
+                    return next;
+                  })
+                }
+                className="rounded-full px-3 py-1"
+                style={{ backgroundColor: active ? "#6366f1" : "#e5e7eb" }}
+              >
+                <Text
+                  className="text-xs font-semibold"
+                  style={{ color: active ? "#fff" : "#4b5563" }}
+                >
+                  {g}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </ScrollView>
       </View>
 
@@ -239,6 +267,18 @@ export default function RoutesScreen() {
           contentContainerStyle={{ padding: 16 }}
           keyboardShouldPersistTaps="handled"
         />
+      )}
+
+      {/* Keyboard dismiss toolbar */}
+      {Platform.OS === "ios" && (
+        <InputAccessoryView nativeID={SEARCH_ACCESSORY_ID}>
+          <View style={{ flexDirection: "row", justifyContent: "flex-end", backgroundColor: "#f3f4f6", borderTopWidth: 1, borderTopColor: "#e5e7eb", paddingHorizontal: 16, paddingVertical: 8 }}>
+            <TouchableOpacity onPress={() => Keyboard.dismiss()} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+              <Ionicons name="chevron-down" size={16} color="#6366f1" />
+              <Text style={{ color: "#6366f1", fontWeight: "600", fontSize: 15 }}>Dismiss</Text>
+            </TouchableOpacity>
+          </View>
+        </InputAccessoryView>
       )}
 
       {/* Floating + button */}

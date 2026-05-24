@@ -3,12 +3,14 @@ import { db } from "@/lib/db";
 import { GRADES } from "@/lib/grades";
 import { id } from "@instantdb/react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import { useState } from "react";
+import { Stack, useRouter } from "expo-router";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  InputAccessoryView,
   Keyboard,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -16,6 +18,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -32,6 +35,7 @@ const HOLD_COLORS: { color: HoldColor; hex: string }[] = [
 ];
 
 const FORM_HEIGHT = 400;
+const INPUT_ACCESSORY_ID = "create-route";
 
 export default function CreateRouteScreen() {
   const router = useRouter();
@@ -49,10 +53,48 @@ export default function CreateRouteScreen() {
 
   // Slide-up form sheet — withTiming for a smooth non-bouncy animation
   const formY = useSharedValue(FORM_HEIGHT);
+  const keyboardOffset = useSharedValue(0);
+
+  // Mirror the keyboard animation exactly using the event's own duration
+  useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const show = Keyboard.addListener(showEvent, (e) => {
+      keyboardOffset.value = withTiming(e.endCoordinates.height, {
+        duration: Platform.OS === "ios" ? e.duration : 200,
+      });
+    });
+    const hide = Keyboard.addListener(hideEvent, (e) => {
+      keyboardOffset.value = withTiming(0, {
+        duration: Platform.OS === "ios" ? e.duration : 200,
+      });
+    });
+    return () => { show.remove(); hide.remove(); };
+  }, []);
 
   const formSheetStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: formY.value }],
+    transform: [{ translateY: formY.value - keyboardOffset.value }],
   }));
+
+  // Drag the handle bar: visual follow on update, snap or close on end.
+  // .runOnJS(true) keeps all callbacks on the JS thread so we can call
+  // setFormOpen/Keyboard.dismiss directly; withTiming still drives the
+  // animation on the UI thread regardless of where it is called from.
+  const handleDragGesture = Gesture.Pan()
+    .runOnJS(true)
+    .activeOffsetY([0, 8])
+    .onUpdate((e) => {
+      formY.value = Math.max(0, e.translationY);
+    })
+    .onEnd((e) => {
+      if (e.translationY > 100 || e.velocityY > 600) {
+        formY.value = withTiming(FORM_HEIGHT, { duration: 250, easing: Easing.in(Easing.cubic) });
+        Keyboard.dismiss();
+        setFormOpen(false);
+      } else {
+        formY.value = withTiming(0, { duration: 200, easing: Easing.out(Easing.cubic) });
+      }
+    });
 
   function openForm() {
     setFormOpen(true);
@@ -167,6 +209,10 @@ export default function CreateRouteScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: "#000" }}>
+      {/* Disable the native modal swipe-down-to-dismiss when the form is open
+          so the grab-bar gesture always wins over the navigation gesture */}
+      <Stack.Screen options={{ gestureEnabled: !formOpen }} />
+
       {/* Full-screen interactive image — fills the whole screen behind the transparent header */}
       <HoldOverlay
         photoUrl={photoUrl}
@@ -246,24 +292,46 @@ export default function CreateRouteScreen() {
         </TouchableOpacity>
       )}
 
+      {/* Backdrop — when form is open, tapping the board area closes the form */}
+      {formOpen && (
+        <TouchableOpacity
+          style={StyleSheet.absoluteFill}
+          activeOpacity={1}
+          onPress={closeForm}
+        />
+      )}
+
+      {/* Keyboard dismiss toolbar — iOS only */}
+      {Platform.OS === "ios" && (
+        <InputAccessoryView nativeID={INPUT_ACCESSORY_ID}>
+          <View style={styles.inputAccessory}>
+            <TouchableOpacity onPress={() => Keyboard.dismiss()} style={styles.inputAccessoryBtn}>
+              <Ionicons name="chevron-down" size={16} color="#6366f1" />
+              <Text style={styles.inputAccessoryText}>Dismiss</Text>
+            </TouchableOpacity>
+          </View>
+        </InputAccessoryView>
+      )}
+
       {/* Sliding form sheet */}
       <Animated.View style={[styles.formSheet, formSheetStyle]}>
         {/* Header row: drag handle + Done button */}
-        <View style={styles.sheetHeader}>
-          <View style={{ width: 48 }} />
-          <View style={styles.handleBar} />
-          <TouchableOpacity
-            onPress={closeForm}
-            style={{ width: 48, alignItems: "flex-end" }}
-          >
-            <Text style={styles.doneText}>Done</Text>
-          </TouchableOpacity>
-        </View>
+        <GestureDetector gesture={handleDragGesture}>
+          <View style={styles.sheetHeader}>
+            <View style={{ width: 48 }} />
+            <View style={styles.handleBar} />
+            <TouchableOpacity
+              onPress={closeForm}
+              style={{ width: 48, alignItems: "flex-end" }}
+            >
+              <Text style={styles.doneText}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </GestureDetector>
 
         <ScrollView
           contentContainerStyle={styles.formContent}
           keyboardShouldPersistTaps="handled"
-          automaticallyAdjustKeyboardInsets
           showsVerticalScrollIndicator={false}
         >
           {/* Grade */}
@@ -304,6 +372,7 @@ export default function CreateRouteScreen() {
             value={name}
             onChangeText={setName}
             returnKeyType="next"
+            inputAccessoryViewID={INPUT_ACCESSORY_ID}
           />
 
           {/* Description */}
@@ -316,6 +385,7 @@ export default function CreateRouteScreen() {
             onChangeText={setDescription}
             multiline
             numberOfLines={3}
+            inputAccessoryViewID={INPUT_ACCESSORY_ID}
           />
 
           {/* Save */}
@@ -485,4 +555,16 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   saveBtnText: { color: "#fff", fontWeight: "700", fontSize: 16 },
+
+  inputAccessory: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    backgroundColor: "#f3f4f6",
+    borderTopWidth: 1,
+    borderTopColor: "#e5e7eb",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  inputAccessoryBtn: { flexDirection: "row", alignItems: "center", gap: 4 },
+  inputAccessoryText: { color: "#6366f1", fontWeight: "600", fontSize: 15 },
 });

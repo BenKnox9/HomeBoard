@@ -59,15 +59,28 @@ function RouteInfoBar({
   );
   const hasAscended = myAscents.length > 0;
   const badgeColor = gradeBadgeColor(route.grade);
+  const creator = route.creator;
+  const creatorLabel = creator?.username
+    ? `@${creator.username}`
+    : creator?.email
+    ? (creator.email as string).split("@")[0]
+    : null;
 
   return (
     <View style={styles.infoBar}>
       <View style={[styles.gradeBadge, { backgroundColor: badgeColor }]}>
         <Text style={styles.gradeText}>{route.grade}</Text>
       </View>
-      <Text style={styles.routeName} numberOfLines={1}>
-        {route.name}
-      </Text>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.routeName} numberOfLines={1}>
+          {route.name}
+        </Text>
+        {creatorLabel && (
+          <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 11, marginTop: 1 }}>
+            {creatorLabel}
+          </Text>
+        )}
+      </View>
       {hasAscended && (
         <Ionicons
           name="checkmark-circle"
@@ -1036,7 +1049,7 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   gradeText: { color: "#fff", fontWeight: "700", fontSize: 13 },
-  routeName: { flex: 1, color: "#fff", fontWeight: "600", fontSize: 16 },
+  routeName: { color: "#fff", fontWeight: "600", fontSize: 16 },
 
   fixedBar: {
     backgroundColor: "rgba(0,0,0,0.88)",

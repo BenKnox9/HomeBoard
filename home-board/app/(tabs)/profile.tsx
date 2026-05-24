@@ -8,6 +8,8 @@ import { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  InputAccessoryView,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -18,6 +20,8 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+
+const PROFILE_ACCESSORY_ID = "profile-inputs";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   useAnimatedStyle,
@@ -356,6 +360,7 @@ export default function ProfileScreen() {
               autoCorrect={false}
               returnKeyType="done"
               onSubmitEditing={saveUsername}
+              inputAccessoryViewID={PROFILE_ACCESSORY_ID}
             />
             <TouchableOpacity
               onPress={saveUsername}
@@ -445,6 +450,9 @@ export default function ProfileScreen() {
                 value={newPlaylistName}
                 onChangeText={setNewPlaylistName}
                 autoFocus
+                returnKeyType="done"
+                onSubmitEditing={addPlaylist}
+                inputAccessoryViewID={PROFILE_ACCESSORY_ID}
               />
               <View className="flex-row gap-x-2">
                 <TouchableOpacity
@@ -591,6 +599,18 @@ export default function ProfileScreen() {
         </View>
       </View>
 
+      {/* Keyboard dismiss toolbar */}
+      {Platform.OS === "ios" && (
+        <InputAccessoryView nativeID={PROFILE_ACCESSORY_ID}>
+          <View style={{ flexDirection: "row", justifyContent: "flex-end", backgroundColor: "#f3f4f6", borderTopWidth: 1, borderTopColor: "#e5e7eb", paddingHorizontal: 16, paddingVertical: 8 }}>
+            <TouchableOpacity onPress={() => Keyboard.dismiss()} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+              <Ionicons name="chevron-down" size={16} color="#6366f1" />
+              <Text style={{ color: "#6366f1", fontWeight: "600", fontSize: 15 }}>Dismiss</Text>
+            </TouchableOpacity>
+          </View>
+        </InputAccessoryView>
+      )}
+
       {/* Board Picker Modal */}
       <Modal
         visible={showBoardPicker}
@@ -666,6 +686,8 @@ export default function ProfileScreen() {
               placeholderTextColor="#9ca3af"
               value={newBoardName}
               onChangeText={setNewBoardName}
+              returnKeyType="next"
+              inputAccessoryViewID={PROFILE_ACCESSORY_ID}
             />
             <Text className="text-xs font-semibold text-gray-400 uppercase mb-1">
               Description (optional)
@@ -677,6 +699,7 @@ export default function ProfileScreen() {
               value={newBoardDesc}
               onChangeText={setNewBoardDesc}
               multiline
+              inputAccessoryViewID={PROFILE_ACCESSORY_ID}
             />
             <Text className="text-gray-400 text-xs text-center mb-4">
               You'll be prompted to choose a photo of your board.

@@ -8,6 +8,7 @@ interface RouteCardProps {
     name: string;
     grade: string;
     ascents?: { id: string }[];
+    creator?: { username?: string; email?: string };
   };
   onPress: () => void;
 }
@@ -15,6 +16,11 @@ interface RouteCardProps {
 export default function RouteCard({ route, onPress }: RouteCardProps) {
   const ascentCount = route.ascents?.length ?? 0;
   const badgeColor = gradeBadgeColor(route.grade);
+  const creatorLabel = route.creator?.username
+    ? `@${route.creator.username}`
+    : route.creator?.email
+    ? route.creator.email.split("@")[0]
+    : null;
 
   return (
     <TouchableOpacity
@@ -43,6 +49,11 @@ export default function RouteCard({ route, onPress }: RouteCardProps) {
         <Text className="text-gray-800 font-semibold text-base" numberOfLines={1}>
           {route.name}
         </Text>
+        {creatorLabel && (
+          <Text className="text-gray-400 text-xs mt-0.5" numberOfLines={1}>
+            {creatorLabel}
+          </Text>
+        )}
       </View>
 
       <View className="flex-row items-center gap-x-1">
