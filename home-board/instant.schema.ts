@@ -25,9 +25,10 @@ const _schema = i.schema({
       loggedAt: i.number().indexed(),
     }),
     boards: i.entity({
+      country: i.string().indexed().optional(),
       createdAt: i.number().indexed(),
       description: i.string().optional(),
-      name: i.string().indexed(),
+      name: i.string().unique().indexed(),
     }),
     comments: i.entity({
       text: i.string(),

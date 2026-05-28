@@ -22,6 +22,16 @@ import {
 } from "react-native";
 
 const PROFILE_ACCESSORY_ID = "profile-inputs";
+
+const COUNTRIES = [
+  "Argentina", "Australia", "Austria", "Belgium", "Brazil", "Canada",
+  "Chile", "China", "Colombia", "Croatia", "Czech Republic", "Denmark",
+  "Finland", "France", "Germany", "Greece", "Hungary", "India", "Ireland",
+  "Italy", "Japan", "Mexico", "Netherlands", "New Zealand", "Norway",
+  "Poland", "Portugal", "Russia", "Slovakia", "Slovenia", "South Africa",
+  "South Korea", "Spain", "Sweden", "Switzerland", "United Kingdom",
+  "United States", "Other",
+];
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   useAnimatedStyle,
@@ -164,12 +174,15 @@ export default function ProfileScreen() {
   const [showBoardPicker, setShowBoardPicker] = useState(false);
   const [showAddBoard, setShowAddBoard] = useState(false);
   const [showAddPlaylist, setShowAddPlaylist] = useState(false);
+  const [showCountryPicker, setShowCountryPicker] = useState(false);
   const [newBoardName, setNewBoardName] = useState("");
   const [newBoardDesc, setNewBoardDesc] = useState("");
+  const [newBoardCountry, setNewBoardCountry] = useState("");
   const [newPlaylistName, setNewPlaylistName] = useState("");
   const [saving, setSaving] = useState(false);
   const [editingUsername, setEditingUsername] = useState(false);
   const [usernameInput, setUsernameInput] = useState("");
+  const [pickerCountry, setPickerCountry] = useState<string | null>(null);
 
   if (isLoading) {
     return (
@@ -242,10 +255,16 @@ export default function ProfileScreen() {
       db.tx.$users[user.id].link({ selectedBoard: boardId }),
     ]);
     setShowBoardPicker(false);
+    setPickerCountry(null);
   }
 
   async function addBoard() {
     if (!user || !newBoardName.trim()) return;
+
+    if (!newBoardCountry) {
+      Alert.alert("Country required", "Please select a country for this board.");
+      return;
+    }
 
     // Client-side uniqueness check for board name
     const nameExists = (allBoards as any[]).some(
@@ -285,6 +304,7 @@ export default function ProfileScreen() {
         db.tx.boards[boardId]
           .update({
             name: newBoardName.trim(),
+            country: newBoardCountry,
             description: newBoardDesc.trim() || undefined,
             createdAt: Date.now(),
           })
@@ -302,6 +322,7 @@ export default function ProfileScreen() {
 
       setNewBoardName("");
       setNewBoardDesc("");
+      setNewBoardCountry("");
       setShowAddBoard(false);
     } catch (e: any) {
       Alert.alert("Error", e.message ?? "Failed to create board.");
@@ -424,6 +445,23 @@ export default function ProfileScreen() {
               <Text className="text-white font-medium text-sm">Add board</Text>
             </TouchableOpacity>
           </View>
+          {selectedBoard && (
+            <TouchableOpacity
+              onPress={() =>
+                router.push({
+                  pathname: "/update-board-photo",
+                  params: { boardId: selectedBoard.id },
+                })
+              }
+              className="mt-2 bg-gray-100 rounded-xl py-2.5 items-center flex-row justify-center"
+              style={{ gap: 6 }}
+            >
+              <Ionicons name="camera-outline" size={16} color="#6b7280" />
+              <Text className="text-gray-600 font-medium text-sm">
+                Update board photo
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
@@ -616,43 +654,133 @@ export default function ProfileScreen() {
         visible={showBoardPicker}
         transparent
         animationType="slide"
-        onRequestClose={() => setShowBoardPicker(false)}
+        onRequestClose={() => { setShowBoardPicker(false); setPickerCountry(null); }}
       >
         <TouchableOpacity
           className="flex-1 bg-black/40 justify-end"
           activeOpacity={1}
-          onPress={() => setShowBoardPicker(false)}
+          onPress={() => { setShowBoardPicker(false); setPickerCountry(null); }}
         >
           <View className="bg-white rounded-t-3xl p-6">
-            <Text className="text-lg font-bold text-gray-800 mb-4">
-              Select a board
-            </Text>
-            {allBoards.length === 0 ? (
-              <Text className="text-gray-400 text-center py-4">
-                No boards available. Add one first.
-              </Text>
-            ) : (
-              (allBoards as any[]).map((b: any) => (
-                <TouchableOpacity
-                  key={b.id}
-                  onPress={() => selectBoard(b.id)}
-                  className="py-3 border-b border-gray-100 flex-row items-center"
-                >
-                  <Text className="text-gray-800 flex-1">{b.name}</Text>
-                  {selectedBoard?.id === b.id && (
-                    <Text className="text-indigo-600 font-semibold text-sm">
-                      Selected
+            {(() => {
+              const anyHasCountry = (allBoards as any[]).some((b: any) => !!b.country);
+              const boardCountries = (() => {
+                const seen = new Set<string>();
+                (allBoards as any[]).forEach((b: any) => seen.add(b.country || "Other"));
+                return [...seen].sort((a, b) => {
+                  if (a === "Other") return 1;
+                  if (b === "Other") return -1;
+                  return a.localeCompare(b);
+                });
+              })();
+              const boardsInPickerCountry = (allBoards as any[]).filter((b: any) =>
+                pickerCountry === "Other" ? !b.country : b.country === pickerCountry
+              );
+
+              if (allBoards.length === 0) {
+                return (
+                  <>
+                    <Text className="text-lg font-bold text-gray-800 mb-4">Select a board</Text>
+                    <Text className="text-gray-400 text-center py-4">
+                      No boards available. Add one first.
                     </Text>
-                  )}
-                </TouchableOpacity>
-              ))
-            )}
+                  </>
+                );
+              }
+
+              if (!anyHasCountry || pickerCountry !== null) {
+                const boards = anyHasCountry ? boardsInPickerCountry : (allBoards as any[]);
+                return (
+                  <>
+                    <View className="flex-row items-center mb-4">
+                      {anyHasCountry && (
+                        <TouchableOpacity
+                          onPress={() => setPickerCountry(null)}
+                          style={{ marginRight: 8 }}
+                        >
+                          <Ionicons name="chevron-back" size={22} color="#6366f1" />
+                        </TouchableOpacity>
+                      )}
+                      <Text className="text-lg font-bold text-gray-800 flex-1">
+                        {anyHasCountry ? pickerCountry : "Select a board"}
+                      </Text>
+                    </View>
+                    {boards.map((b: any) => (
+                      <TouchableOpacity
+                        key={b.id}
+                        onPress={() => selectBoard(b.id)}
+                        className="py-3 border-b border-gray-100 flex-row items-center"
+                      >
+                        <Text className="text-gray-800 flex-1">{b.name}</Text>
+                        {selectedBoard?.id === b.id && (
+                          <Text className="text-indigo-600 font-semibold text-sm">Selected</Text>
+                        )}
+                      </TouchableOpacity>
+                    ))}
+                  </>
+                );
+              }
+
+              return (
+                <>
+                  <Text className="text-lg font-bold text-gray-800 mb-4">Select a country</Text>
+                  {boardCountries.map((c) => {
+                    const count = (allBoards as any[]).filter((b: any) =>
+                      c === "Other" ? !b.country : b.country === c
+                    ).length;
+                    return (
+                      <TouchableOpacity
+                        key={c}
+                        onPress={() => setPickerCountry(c)}
+                        className="py-3 border-b border-gray-100 flex-row items-center"
+                      >
+                        <Text className="text-gray-800 flex-1">{c}</Text>
+                        <Text className="text-gray-400 text-sm mr-2">
+                          {count} board{count !== 1 ? "s" : ""}
+                        </Text>
+                        <Ionicons name="chevron-forward" size={16} color="#d1d5db" />
+                      </TouchableOpacity>
+                    );
+                  })}
+                </>
+              );
+            })()}
             <TouchableOpacity
-              onPress={() => setShowBoardPicker(false)}
+              onPress={() => { setShowBoardPicker(false); setPickerCountry(null); }}
               className="mt-4 bg-gray-100 rounded-xl py-3 items-center"
             >
               <Text className="text-gray-600 font-medium">Cancel</Text>
             </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Country Picker Modal */}
+      <Modal
+        visible={showCountryPicker}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowCountryPicker(false)}
+      >
+        <TouchableOpacity
+          className="flex-1 bg-black/40 justify-end"
+          activeOpacity={1}
+          onPress={() => setShowCountryPicker(false)}
+        >
+          <View style={{ backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: "70%", paddingTop: 20, paddingHorizontal: 24, paddingBottom: 24 }}>
+            <Text style={{ fontSize: 16, fontWeight: "700", color: "#111827", marginBottom: 12 }}>Select country</Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {COUNTRIES.map((c) => (
+                <TouchableOpacity
+                  key={c}
+                  onPress={() => { setNewBoardCountry(c); setShowCountryPicker(false); }}
+                  style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#f3f4f6", flexDirection: "row", alignItems: "center" }}
+                >
+                  <Text style={{ flex: 1, color: "#1f2937", fontSize: 15 }}>{c}</Text>
+                  {newBoardCountry === c && <Ionicons name="checkmark" size={18} color="#6366f1" />}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
           </View>
         </TouchableOpacity>
       </Modal>
@@ -677,6 +805,18 @@ export default function ProfileScreen() {
             <Text className="text-lg font-bold text-gray-800 mb-4">
               Add a board
             </Text>
+            <Text className="text-xs font-semibold text-gray-400 uppercase mb-1">
+              Country
+            </Text>
+            <TouchableOpacity
+              onPress={() => setShowCountryPicker(true)}
+              className="border border-gray-200 rounded-xl px-4 py-3 bg-gray-50 mb-3 flex-row items-center justify-between"
+            >
+              <Text style={{ color: newBoardCountry ? "#1f2937" : "#9ca3af", fontSize: 14 }}>
+                {newBoardCountry || "Select a country"}
+              </Text>
+              <Ionicons name="chevron-down" size={16} color="#9ca3af" />
+            </TouchableOpacity>
             <Text className="text-xs font-semibold text-gray-400 uppercase mb-1">
               Name
             </Text>
@@ -710,6 +850,7 @@ export default function ProfileScreen() {
                   setShowAddBoard(false);
                   setNewBoardName("");
                   setNewBoardDesc("");
+                  setNewBoardCountry("");
                 }}
                 className="flex-1 bg-gray-100 rounded-xl py-3 items-center"
               >
@@ -717,9 +858,9 @@ export default function ProfileScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={addBoard}
-                disabled={saving || !newBoardName.trim()}
+                disabled={saving || !newBoardName.trim() || !newBoardCountry}
                 className="flex-1 bg-indigo-600 rounded-xl py-3 items-center"
-                style={{ opacity: saving || !newBoardName.trim() ? 0.5 : 1 }}
+                style={{ opacity: saving || !newBoardName.trim() || !newBoardCountry ? 0.5 : 1 }}
               >
                 {saving ? (
                   <ActivityIndicator color="#fff" />

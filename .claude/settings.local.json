@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(npx tsc *)",
-      "Bash(npx instant-cli *)"
+      "Bash(npx instant-cli *)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\bookn\\\\source\\\\repos\\\\HomeBoard\\\\home-board\\\\\" -Recurse -Force | Select-Object -First 50)"
     ]
   }
 }

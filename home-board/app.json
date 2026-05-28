@@ -26,6 +26,12 @@
     "plugins": [
       "expo-router",
       [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow HomeBoard to access your camera to photograph your board."
+        }
+      ],
+      [
         "expo-image-picker",
         {
           "photosPermission": "Allow HomeBoard to access your photos to add a board photo."
