@@ -98,7 +98,29 @@ export default function VerifyRoutesScreen() {
     }));
   }
 
+  const [reviewedIds, setReviewedIds] = useState<Set<string>>(new Set());
+
+  const uncheckedCount = routes.length - reviewedIds.size;
+
   async function save() {
+    if (uncheckedCount > 0) {
+      Alert.alert(
+        "Routes not checked",
+        `You haven't checked ${uncheckedCount} route${uncheckedCount !== 1 ? "s" : ""}. Select each route and verify its holds look correct before saving.`,
+        [
+          { text: "Keep checking", style: "cancel" },
+          {
+            text: "Save anyway",
+            onPress: () => doSave(),
+          },
+        ]
+      );
+      return;
+    }
+    doSave();
+  }
+
+  async function doSave() {
     const changedIds = Object.keys(modifiedHolds);
     if (changedIds.length === 0) {
       router.back();
@@ -255,8 +277,15 @@ export default function VerifyRoutesScreen() {
             {routes.length} route{routes.length !== 1 ? "s" : ""} on this board
           </Text>
           <Text style={styles.panelSub}>
-            Select a route, then tap any holds that are wrong
+            Select each route and tap holds that are misaligned. Check all routes before saving.
           </Text>
+          {routes.length > 0 && (
+            <Text style={[styles.panelSub, { color: uncheckedCount === 0 ? "#22c55e" : "#f59e0b", marginTop: 2 }]}>
+              {uncheckedCount === 0
+                ? "✓ All routes checked"
+                : `${reviewedIds.size} / ${routes.length} routes checked`}
+            </Text>
+          )}
         </View>
 
         {routes.length === 0 ? (
@@ -279,9 +308,10 @@ export default function VerifyRoutesScreen() {
               return (
                 <TouchableOpacity
                   key={route.id}
-                  onPress={() =>
-                    setSelectedRouteId(isSelected ? null : route.id)
-                  }
+                  onPress={() => {
+                    setSelectedRouteId(isSelected ? null : route.id);
+                    if (!isSelected) setReviewedIds((prev) => new Set(prev).add(route.id));
+                  }}
                   style={[
                     styles.routeCard,
                     isSelected && styles.routeCardActive,
@@ -316,6 +346,9 @@ export default function VerifyRoutesScreen() {
                     <View style={styles.editedBadge}>
                       <Text style={styles.editedText}>Edited</Text>
                     </View>
+                  )}
+                  {reviewedIds.has(route.id) && !isModified && (
+                    <Ionicons name="checkmark-circle" size={16} color="#22c55e" />
                   )}
 
                   <Ionicons

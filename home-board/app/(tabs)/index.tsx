@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { GRADES, gradeIndex } from "@/lib/grades";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -18,6 +18,7 @@ import {
 } from "react-native";
 
 const SEARCH_ACCESSORY_ID = "routes-search";
+const PAGE_SIZE = 50;
 
 type SortField = "grade" | "ascents";
 type SortDir = "desc" | "asc";
@@ -31,6 +32,11 @@ export default function RoutesScreen() {
   const [gradeFilters, setGradeFilters] = useState<Set<string>>(new Set());
   const [sort, setSort] = useState<SortState | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [searchQuery, gradeFilters, sort]);
 
   const { isLoading, error, data } = db.useQuery(
     user
@@ -77,6 +83,7 @@ export default function RoutesScreen() {
   const selectedBoard = data?.$users?.[0]?.selectedBoard;
   const allRoutes = (selectedBoard?.routes ?? []) as any[];
 
+  // Reset pagination when filters change
   const q = searchQuery.trim().toLowerCase();
   const isUsernameSearch = q.startsWith("@");
   const searchTerm = isUsernameSearch ? q.slice(1) : q;
@@ -248,7 +255,7 @@ export default function RoutesScreen() {
         </View>
       ) : (
         <FlatList
-          data={filteredRoutes}
+          data={filteredRoutes.slice(0, visibleCount)}
           keyExtractor={(r) => r.id}
           renderItem={({ item }) => (
             <RouteCard
@@ -266,6 +273,18 @@ export default function RoutesScreen() {
           )}
           contentContainerStyle={{ padding: 16 }}
           keyboardShouldPersistTaps="handled"
+          ListFooterComponent={
+            filteredRoutes.length > visibleCount ? (
+              <TouchableOpacity
+                onPress={() => setVisibleCount((n) => n + PAGE_SIZE)}
+                className="items-center py-4 mb-2"
+              >
+                <Text className="text-indigo-600 font-semibold text-sm">
+                  Load more ({filteredRoutes.length - visibleCount} remaining)
+                </Text>
+              </TouchableOpacity>
+            ) : null
+          }
         />
       )}
 

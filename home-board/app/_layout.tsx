@@ -1,5 +1,6 @@
 import "../global.css";
 import LoginScreen from "@/components/LoginScreen";
+import OnboardingModal from "@/components/OnboardingModal";
 import { db } from "@/lib/db";
 import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
@@ -37,14 +38,8 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false, title: "Profile" }} />
-        <Stack.Screen
-          name="route/[id]"
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="playlist/[id]"
-          options={{}}
-        />
+        <Stack.Screen name="route/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="playlist/[id]" options={{}} />
         <Stack.Screen
           name="create-route"
           options={{
@@ -54,7 +49,25 @@ export default function RootLayout() {
             headerTintColor: "#fff",
           }}
         />
+        <Stack.Screen
+          name="edit-route"
+          options={{
+            headerTitle: "Edit route",
+            presentation: "modal",
+            headerTransparent: true,
+            headerTintColor: "#fff",
+          }}
+        />
+        <Stack.Screen
+          name="update-board-photo"
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="verify-routes"
+          options={{ headerShown: false }}
+        />
       </Stack>
+      <OnboardingModal />
       <StatusBar style="auto" />
     </GestureHandlerRootView>
   );

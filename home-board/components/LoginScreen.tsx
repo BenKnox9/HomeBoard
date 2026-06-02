@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -10,20 +10,43 @@ import {
   Platform,
 } from "react-native";
 
+const COOLDOWN_SECONDS = 60;
+
 export default function LoginScreen() {
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [sentEmail, setSentEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [cooldown, setCooldown] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, []);
+
+  function startCooldown() {
+    setCooldown(COOLDOWN_SECONDS);
+    timerRef.current = setInterval(() => {
+      setCooldown((c) => {
+        if (c <= 1) {
+          clearInterval(timerRef.current!);
+          timerRef.current = null;
+          return 0;
+        }
+        return c - 1;
+      });
+    }, 1000);
+  }
 
   async function sendCode() {
-    if (!email.trim()) return;
+    if (!email.trim() || cooldown > 0) return;
     setLoading(true);
     setErrorMsg("");
     try {
       await db.auth.sendMagicCode({ email: email.trim() });
       setSentEmail(email.trim());
+      startCooldown();
     } catch (e: any) {
       setErrorMsg(e.body?.message ?? e.message ?? "Failed to send code.");
     } finally {
@@ -36,15 +59,14 @@ export default function LoginScreen() {
     setLoading(true);
     setErrorMsg("");
     try {
-      await db.auth.signInWithMagicCode({
-        email: sentEmail,
-        code: code.trim(),
-      });
+      await db.auth.signInWithMagicCode({ email: sentEmail, code: code.trim() });
     } catch (e: any) {
       setErrorMsg(e.body?.message ?? e.message ?? "Invalid code.");
       setLoading(false);
     }
   }
+
+  const sendDisabled = loading || !email.trim() || cooldown > 0;
 
   return (
     <KeyboardAvoidingView
@@ -53,18 +75,12 @@ export default function LoginScreen() {
     >
       <View className="flex-1 items-center justify-center px-8">
         <View className="w-full max-w-sm bg-white rounded-3xl shadow-lg p-8">
-          <Text className="text-3xl font-bold text-indigo-600 mb-1">
-            HomeBoard
-          </Text>
-          <Text className="text-gray-400 mb-8 text-sm">
-            Sign in to your account
-          </Text>
+          <Text className="text-3xl font-bold text-indigo-600 mb-1">HomeBoard</Text>
+          <Text className="text-gray-400 mb-8 text-sm">Sign in to your account</Text>
 
           {!sentEmail ? (
             <>
-              <Text className="text-xs font-semibold text-gray-500 uppercase mb-2">
-                Email
-              </Text>
+              <Text className="text-xs font-semibold text-gray-500 uppercase mb-2">Email</Text>
               <TextInput
                 className="border border-gray-200 rounded-xl px-4 py-3 text-base text-gray-800 mb-4 bg-gray-50"
                 placeholder="you@example.com"
@@ -82,15 +98,15 @@ export default function LoginScreen() {
               ) : null}
               <TouchableOpacity
                 onPress={sendCode}
-                disabled={loading || !email.trim()}
+                disabled={sendDisabled}
                 className="bg-indigo-600 rounded-xl py-3 items-center"
-                style={{ opacity: loading || !email.trim() ? 0.5 : 1 }}
+                style={{ opacity: sendDisabled ? 0.5 : 1 }}
               >
                 {loading ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
                   <Text className="text-white font-semibold text-base">
-                    Send code
+                    {cooldown > 0 ? `Resend in ${cooldown}s` : "Send code"}
                   </Text>
                 )}
               </TouchableOpacity>
@@ -101,9 +117,7 @@ export default function LoginScreen() {
                 Code sent to{" "}
                 <Text className="font-semibold text-gray-800">{sentEmail}</Text>
               </Text>
-              <Text className="text-xs font-semibold text-gray-500 uppercase mb-2">
-                Magic code
-              </Text>
+              <Text className="text-xs font-semibold text-gray-500 uppercase mb-2">Magic code</Text>
               <TextInput
                 className="border border-gray-200 rounded-xl px-4 py-3 text-base text-gray-800 mb-4 bg-gray-50 tracking-widest"
                 placeholder="000000"
@@ -128,21 +142,24 @@ export default function LoginScreen() {
                 {loading ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <Text className="text-white font-semibold text-base">
-                    Verify
-                  </Text>
+                  <Text className="text-white font-semibold text-base">Verify</Text>
                 )}
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => {
-                  setSentEmail("");
-                  setCode("");
-                  setErrorMsg("");
+                  if (cooldown === 0) sendCode();
                 }}
+                disabled={cooldown > 0}
               >
-                <Text className="text-indigo-500 text-sm text-center">
-                  Use a different email
+                <Text className={`text-sm text-center ${cooldown > 0 ? "text-gray-400" : "text-indigo-500"}`}>
+                  {cooldown > 0 ? `Resend in ${cooldown}s` : "Resend code"}
                 </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => { setSentEmail(""); setCode(""); setErrorMsg(""); }}
+                style={{ marginTop: 8 }}
+              >
+                <Text className="text-indigo-500 text-sm text-center">Use a different email</Text>
               </TouchableOpacity>
             </>
           )}

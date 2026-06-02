@@ -11,9 +11,10 @@ import { id } from "@instantdb/react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { router, useLocalSearchParams } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   KeyboardAvoidingView,
   Modal,
@@ -40,9 +41,16 @@ const SLIDE_MS = 220;
 // ── Small helpers ────────────────────────────────────────────────────────────
 
 function parseHolds(raw: string | undefined): Hold[] {
+  if (!raw) return [];
   try {
-    return raw ? JSON.parse(raw) : [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      Alert.alert("Hold data error", "This route's hold data is corrupted and cannot be displayed.");
+      return [];
+    }
+    return parsed;
   } catch {
+    Alert.alert("Hold data error", "This route's hold data is corrupted and cannot be displayed.");
     return [];
   }
 }
@@ -149,6 +157,8 @@ export default function RouteDetailScreen() {
   const [falls, setFalls] = useState(0);
   const [logging, setLogging] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
+  // Track which routes the user has already logged an ascent for this session
+  const ascentedInSession = useRef<Set<string>>(new Set());
   const [holdsTransparent, setHoldsTransparent] = useState(false);
   const [showPlaylistModal, setShowPlaylistModal] = useState(false);
   const [commentText, setCommentText] = useState("");
@@ -441,6 +451,10 @@ export default function RouteDetailScreen() {
 
   async function logAscent() {
     if (!user || !displayedId) return;
+    if (ascentedInSession.current.has(displayedId)) {
+      Alert.alert("Already logged", "You've already logged an ascent for this route this session.");
+      return;
+    }
     setLogging(true);
     try {
       await db.transact([
@@ -448,10 +462,41 @@ export default function RouteDetailScreen() {
           .update({ attempts: falls, loggedAt: Date.now() })
           .link({ route: displayedId, user: user.id }),
       ]);
+      ascentedInSession.current.add(displayedId);
       setFalls(0);
     } finally {
       setLogging(false);
     }
+  }
+
+  async function deleteRoute() {
+    if (!currentRoute || !user) return;
+    const isCreator = (currentRoute as any).creator?.id === user.id;
+    if (!isCreator) return;
+    Alert.alert(
+      "Delete route",
+      "This will permanently delete the route, all ascents, comments, and likes. This cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const txs: any[] = [];
+              for (const a of currentRoute.ascents ?? []) txs.push(db.tx.ascents[a.id].delete());
+              for (const c of currentRoute.comments ?? []) txs.push(db.tx.comments[c.id].delete());
+              for (const l of currentRoute.likes ?? []) txs.push(db.tx.likes[l.id].delete());
+              txs.push(db.tx.routes[currentRoute.id].delete());
+              await db.transact(txs);
+              router.back();
+            } catch (e: any) {
+              Alert.alert("Error", e.message ?? "Failed to delete route.");
+            }
+          },
+        },
+      ]
+    );
   }
 
   async function toggleLike() {
@@ -812,14 +857,35 @@ export default function RouteDetailScreen() {
                   setShowInfo(false);
                   setShowPlaylistModal(true);
                 }}
-                style={[styles.infoRow, { marginBottom: 20 }]}
+                style={styles.infoRow}
               >
                 <Ionicons name="bookmark-outline" size={20} color="#6b7280" />
                 <Text style={[styles.infoRowText, { color: "#6b7280" }]}>
                   Add to playlist
                 </Text>
-
               </TouchableOpacity>
+
+              {(currentRoute as any).creator?.id === user?.id && (
+                <>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setShowInfo(false);
+                      router.push({ pathname: "/edit-route", params: { routeId: currentRoute.id } });
+                    }}
+                    style={styles.infoRow}
+                  >
+                    <Ionicons name="pencil-outline" size={20} color="#6366f1" />
+                    <Text style={[styles.infoRowText, { color: "#6366f1" }]}>Edit holds</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => { setShowInfo(false); deleteRoute(); }}
+                    style={[styles.infoRow, { marginBottom: 20 }]}
+                  >
+                    <Ionicons name="trash-outline" size={20} color="#ef4444" />
+                    <Text style={[styles.infoRowText, { color: "#ef4444" }]}>Delete route</Text>
+                  </TouchableOpacity>
+                </>
+              )}
 
               <Text style={styles.sectionLabel}>
                 Comments ({comments.length})

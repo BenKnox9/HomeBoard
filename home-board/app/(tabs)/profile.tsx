@@ -1,10 +1,11 @@
 import { db } from "@/lib/db";
 import { GRADES, gradeBadgeColor } from "@/lib/grades";
+import { ImageValidationError, prepareImage } from "@/lib/imageUtils";
 import { id } from "@instantdb/react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -210,30 +211,23 @@ export default function ProfileScreen() {
         arr.findIndex((x) => x.id === r.id) === i
     );
 
-  const uniqueDays = new Set(
-    ascents.map((a: any) => new Date(a.loggedAt).toDateString())
-  ).size;
-
-  const SESSION_GAP_MS = 60 * 60 * 1000;
-  const sessions = (() => {
-    if (ascents.length === 0) return 0;
-    const sorted = [...ascents].sort(
-      (a: any, b: any) => a.loggedAt - b.loggedAt
-    );
-    let count = 1;
+  const { uniqueDays, sessions, climbsPerSession } = useMemo(() => {
+    const SESSION_GAP_MS = 60 * 60 * 1000;
+    const ud = new Set(
+      ascents.map((a: any) => new Date(a.loggedAt).toDateString())
+    ).size;
+    if (ascents.length === 0) return { uniqueDays: 0, sessions: 0, climbsPerSession: "0" };
+    const sorted = [...ascents].sort((a: any, b: any) => a.loggedAt - b.loggedAt);
+    let s = 1;
     for (let i = 1; i < sorted.length; i++) {
-      if (sorted[i].loggedAt - sorted[i - 1].loggedAt > SESSION_GAP_MS) {
-        count++;
-      }
+      if (sorted[i].loggedAt - sorted[i - 1].loggedAt > SESSION_GAP_MS) s++;
     }
-    return count;
-  })();
-  const climbsPerSession =
-    sessions > 0 ? (ascents.length / sessions).toFixed(1) : "0";
+    return { uniqueDays: ud, sessions: s, climbsPerSession: (ascents.length / s).toFixed(1) };
+  }, [ascents]);
 
   async function saveUsername() {
     if (!user) return;
-    const trimmed = usernameInput.trim();
+    const trimmed = usernameInput.trim().toLowerCase();
     if (!trimmed) return;
     try {
       await db.transact([db.tx.$users[user.id].update({ username: trimmed } as any)]);
@@ -288,14 +282,17 @@ export default function ProfileScreen() {
       let fileId: string | undefined;
       if (!result.canceled && result.assets[0]) {
         const asset = result.assets[0];
-        const filename = asset.fileName ?? `photo_${Date.now()}.jpg`;
+        const prepared = await prepareImage({
+          uri: asset.uri,
+          width: asset.width ?? undefined,
+          height: asset.height ?? undefined,
+          fileSize: asset.fileSize ?? undefined,
+          mimeType: asset.mimeType ?? undefined,
+        });
+        const filename = `photo_${Date.now()}.jpg`;
         const uploadResult = await db.storage.uploadFile(
           `boards/${boardId}/${filename}`,
-          {
-            uri: asset.uri,
-            name: filename,
-            type: asset.mimeType ?? "image/jpeg",
-          } as any
+          { uri: prepared.uri, name: filename, type: prepared.mimeType } as any
         );
         fileId = uploadResult.data?.id;
       }
@@ -325,7 +322,11 @@ export default function ProfileScreen() {
       setNewBoardCountry("");
       setShowAddBoard(false);
     } catch (e: any) {
-      Alert.alert("Error", e.message ?? "Failed to create board.");
+      if (e instanceof ImageValidationError) {
+        Alert.alert("Photo too large", e.message);
+      } else {
+        Alert.alert("Error", e.message ?? "Failed to create board.");
+      }
     } finally {
       setSaving(false);
     }

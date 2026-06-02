@@ -10,6 +10,7 @@ import {
   Alert,
   InputAccessoryView,
   Keyboard,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -50,6 +51,7 @@ export default function CreateRouteScreen() {
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
+  const [showLegend, setShowLegend] = useState(false);
 
   // Slide-up form sheet — withTiming for a smooth non-bouncy animation
   const formY = useSharedValue(FORM_HEIGHT);
@@ -223,11 +225,19 @@ export default function CreateRouteScreen() {
         onHoldsChange={setHolds}
       />
 
-      {/* Hold count badge — top right, below transparent header */}
-      <View style={[styles.holdCountBadge, { top: badgeTop }]}>
-        <Text style={styles.holdCountText}>
-          {holds.length} hold{holds.length !== 1 ? "s" : ""}
-        </Text>
+      {/* Hold count badge + legend button — top right */}
+      <View style={{ position: "absolute", top: badgeTop, right: 12, flexDirection: "row", alignItems: "center", gap: 6 }}>
+        <View style={styles.holdCountBadge}>
+          <Text style={styles.holdCountText}>
+            {holds.length} hold{holds.length !== 1 ? "s" : ""}
+          </Text>
+        </View>
+        <TouchableOpacity
+          onPress={() => setShowLegend(true)}
+          style={[styles.holdCountBadge, { paddingHorizontal: 8 }]}
+        >
+          <Text style={styles.holdCountText}>?</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Contextual hint — top left */}
@@ -312,6 +322,39 @@ export default function CreateRouteScreen() {
           </View>
         </InputAccessoryView>
       )}
+
+      {/* Hold colour legend modal */}
+      <Modal visible={showLegend} transparent animationType="fade" onRequestClose={() => setShowLegend(false)}>
+        <TouchableOpacity
+          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center" }}
+          activeOpacity={1}
+          onPress={() => setShowLegend(false)}
+        >
+          <View style={{ backgroundColor: "#fff", borderRadius: 20, padding: 24, width: 280 }}>
+            <Text style={{ fontSize: 16, fontWeight: "700", color: "#111827", marginBottom: 16 }}>Hold colours</Text>
+            {[
+              { hex: "#22c55e", label: "Green", desc: "Start holds" },
+              { hex: "#3b82f6", label: "Blue", desc: "Hand and foot holds" },
+              { hex: "#a855f7", label: "Purple", desc: "Feet only holds" },
+              { hex: "#ef4444", label: "Red", desc: "End holds" },
+            ].map(({ hex, label, desc }) => (
+              <View key={label} style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
+                <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: hex, marginRight: 12 }} />
+                <View>
+                  <Text style={{ fontWeight: "600", color: "#111827", fontSize: 14 }}>{label}</Text>
+                  <Text style={{ color: "#9ca3af", fontSize: 12 }}>{desc}</Text>
+                </View>
+              </View>
+            ))}
+            <TouchableOpacity
+              onPress={() => setShowLegend(false)}
+              style={{ backgroundColor: "#6366f1", borderRadius: 12, paddingVertical: 10, alignItems: "center", marginTop: 4 }}
+            >
+              <Text style={{ color: "#fff", fontWeight: "600" }}>Got it</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* Sliding form sheet */}
       <Animated.View style={[styles.formSheet, formSheetStyle]}>
@@ -408,8 +451,6 @@ export default function CreateRouteScreen() {
 
 const styles = StyleSheet.create({
   holdCountBadge: {
-    position: "absolute",
-    right: 12,
     backgroundColor: "rgba(0,0,0,0.55)",
     borderRadius: 12,
     paddingHorizontal: 12,

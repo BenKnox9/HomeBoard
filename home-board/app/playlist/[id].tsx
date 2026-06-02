@@ -6,6 +6,7 @@ import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   LayoutAnimation,
   Platform,
   ScrollView,
@@ -409,7 +410,7 @@ export default function PlaylistDetailScreen() {
         (db.tx.playlists as any)[playlistId].update({ routeOrder: JSON.stringify(ids) }),
       ]);
     } catch {
-      // Non-critical — order reconciles on next data push
+      Alert.alert("Error", "Failed to save the new order. Please try again.");
     }
   }
 
@@ -424,7 +425,7 @@ export default function PlaylistDetailScreen() {
           .update({ routeOrder: JSON.stringify(newIds) }),
       ]);
     } catch {
-      // ignore
+      Alert.alert("Error", "Failed to remove the route. Please try again.");
     }
   }
 

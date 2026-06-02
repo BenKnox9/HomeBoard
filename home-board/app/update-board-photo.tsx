@@ -1,7 +1,9 @@
 import { db } from "@/lib/db";
+import { prepareImage } from "@/lib/imageUtils";
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Image } from "expo-image";
+import * as Linking from "expo-linking";
 import { router, useLocalSearchParams } from "expo-router";
 import { useRef, useState } from "react";
 import {
@@ -24,43 +26,67 @@ export default function UpdateBoardPhotoScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [uploading, setUploading] = useState(false);
   const [opacityStep, setOpacityStep] = useState(0);
+  const [capturedUri, setCapturedUri] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const cameraRef = useRef<CameraView>(null);
 
-  // Query current board photo to use as ghost overlay
   const { data } = db.useQuery(
     boardId
       ? { boards: { $: { where: { id: boardId } }, photo: {} } }
       : null
   );
-  const ghostUrl = (data?.boards?.[0] as any)?.photo?.url as string | undefined;
+  const board = (data?.boards?.[0] as any);
+  const ghostUrl = board?.photo?.url as string | undefined;
+  const oldPhotoId = board?.photo?.id as string | undefined;
   const ghostOpacity = OPACITY_STEPS[opacityStep];
 
   function cycleOpacity() {
     setOpacityStep((s) => (s + 1) % OPACITY_STEPS.length);
   }
 
-  async function capture() {
-    if (!cameraRef.current || uploading || !boardId) return;
+  async function doUpload(photoUri: string) {
+    if (!boardId) return;
     setUploading(true);
+    setUploadError(null);
     try {
-      const photo = await cameraRef.current.takePictureAsync({ quality: 0.85 });
+      const prepared = await prepareImage({ uri: photoUri });
       const filename = `board_${Date.now()}.jpg`;
       const result = await db.storage.uploadFile(
         `boards/${boardId}/${filename}`,
-        { uri: photo.uri, name: filename, type: "image/jpeg" } as any
+        { uri: prepared.uri, name: filename, type: prepared.mimeType } as any
       );
       const fileId = result.data?.id;
       if (!fileId) throw new Error("Upload failed — please try again.");
-      await db.transact([db.tx.boards[boardId].link({ photo: fileId })]);
-      router.replace({
-        pathname: "/verify-routes",
-        params: { boardId },
-      });
+
+      // Unlink and delete old photo before linking new one
+      const txs: any[] = [db.tx.boards[boardId].link({ photo: fileId })];
+      if (oldPhotoId) {
+        txs.push(db.tx.$files[oldPhotoId].delete());
+      }
+      await db.transact(txs);
+
+      router.replace({ pathname: "/verify-routes", params: { boardId } });
     } catch (e: any) {
-      Alert.alert("Error", e.message ?? "Failed to update board photo.");
+      setUploadError(e.message ?? "Upload failed. Please try again.");
     } finally {
       setUploading(false);
     }
+  }
+
+  async function capture() {
+    if (!cameraRef.current || uploading || !boardId) return;
+    try {
+      const photo = await cameraRef.current.takePictureAsync({ quality: 0.85 });
+      setCapturedUri(photo.uri);
+      await doUpload(photo.uri);
+    } catch (e: any) {
+      Alert.alert("Error", e.message ?? "Failed to capture photo.");
+    }
+  }
+
+  async function retry() {
+    if (!capturedUri) return;
+    await doUpload(capturedUri);
   }
 
   // ── Permission states ─────────────────────────────────────────────────────
@@ -70,29 +96,24 @@ export default function UpdateBoardPhotoScreen() {
   }
 
   if (!permission.granted) {
+    const canAsk = permission.canAskAgain !== false;
     return (
       <View style={styles.permScreen}>
-        <Ionicons
-          name="camera-outline"
-          size={56}
-          color="#6366f1"
-          style={{ marginBottom: 20 }}
-        />
+        <Ionicons name="camera-outline" size={56} color="#6366f1" style={{ marginBottom: 20 }} />
         <Text style={styles.permTitle}>Camera access needed</Text>
         <Text style={styles.permBody}>
-          HomeBoard uses your camera to capture a new board photo with the
-          previous photo as a ghost overlay for easy alignment.
+          HomeBoard uses your camera to capture a new board photo with the previous photo as a ghost overlay for easy alignment.
         </Text>
-        <TouchableOpacity onPress={requestPermission} style={styles.permBtn}>
-          <Text style={styles.permBtnText}>Allow camera</Text>
-        </TouchableOpacity>
         <TouchableOpacity
-          onPress={() => router.back()}
-          style={{ marginTop: 16 }}
+          onPress={canAsk ? requestPermission : () => Linking.openSettings()}
+          style={styles.permBtn}
         >
-          <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 14 }}>
-            Cancel
+          <Text style={styles.permBtnText}>
+            {canAsk ? "Allow camera" : "Open settings"}
           </Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 16 }}>
+          <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 14 }}>Cancel</Text>
         </TouchableOpacity>
       </View>
     );
@@ -105,10 +126,8 @@ export default function UpdateBoardPhotoScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: "#000" }}>
-      {/* Live camera feed */}
       <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" />
 
-      {/* Ghost overlay — old board photo at reduced opacity */}
       {ghostUrl && ghostOpacity > 0 && (
         <Image
           source={{ uri: ghostUrl }}
@@ -116,6 +135,14 @@ export default function UpdateBoardPhotoScreen() {
           contentFit="contain"
           pointerEvents="none"
         />
+      )}
+
+      {/* Full-screen upload overlay */}
+      {uploading && (
+        <View style={styles.uploadOverlay}>
+          <ActivityIndicator color="#fff" size="large" />
+          <Text style={styles.uploadOverlayText}>Uploading…</Text>
+        </View>
       )}
 
       {/* Top bar */}
@@ -126,7 +153,7 @@ export default function UpdateBoardPhotoScreen() {
 
         <View style={styles.pill}>
           <Ionicons name="information-circle-outline" size={14} color="rgba(255,255,255,0.7)" />
-          <Text style={styles.pillText}>Align board to ghost outline</Text>
+          <Text style={styles.pillText}>Align board edges to ghost</Text>
         </View>
 
         <TouchableOpacity onPress={cycleOpacity} style={styles.pill}>
@@ -139,25 +166,30 @@ export default function UpdateBoardPhotoScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Bottom bar — capture button */}
+      {/* Bottom bar */}
       <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 28 }]}>
-        <Text style={styles.hint}>
-          Frame the board to match the ghost, then tap to capture
-        </Text>
-        <TouchableOpacity
-          onPress={capture}
-          disabled={uploading}
-          style={[styles.captureBtn, uploading && { opacity: 0.6 }]}
-          activeOpacity={0.75}
-        >
-          {uploading ? (
-            <ActivityIndicator color="#6366f1" size="large" />
-          ) : (
-            <View style={styles.captureBtnInner} />
-          )}
-        </TouchableOpacity>
-        {uploading && (
-          <Text style={[styles.hint, { marginTop: 12 }]}>Uploading…</Text>
+        {uploadError ? (
+          <>
+            <Text style={[styles.hint, { color: "#fca5a5" }]}>{uploadError}</Text>
+            <TouchableOpacity onPress={retry} style={styles.retryBtn} activeOpacity={0.75}>
+              <Ionicons name="refresh" size={20} color="#6366f1" />
+              <Text style={styles.retryBtnText}>Try again</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <Text style={styles.hint}>
+              Frame the board to match the ghost, then tap to capture
+            </Text>
+            <TouchableOpacity
+              onPress={capture}
+              disabled={uploading}
+              style={[styles.captureBtn, uploading && { opacity: 0.6 }]}
+              activeOpacity={0.75}
+            >
+              <View style={styles.captureBtnInner} />
+            </TouchableOpacity>
+          </>
         )}
       </View>
     </View>
@@ -172,27 +204,20 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     padding: 40,
   },
-  permTitle: {
-    color: "#fff",
-    fontSize: 22,
-    fontWeight: "700",
-    marginBottom: 12,
-    textAlign: "center",
-  },
-  permBody: {
-    color: "rgba(255,255,255,0.6)",
-    fontSize: 15,
-    textAlign: "center",
-    lineHeight: 22,
-    marginBottom: 32,
-  },
-  permBtn: {
-    backgroundColor: "#6366f1",
-    borderRadius: 14,
-    paddingHorizontal: 32,
-    paddingVertical: 14,
-  },
+  permTitle: { color: "#fff", fontSize: 22, fontWeight: "700", marginBottom: 12, textAlign: "center" },
+  permBody: { color: "rgba(255,255,255,0.6)", fontSize: 15, textAlign: "center", lineHeight: 22, marginBottom: 32 },
+  permBtn: { backgroundColor: "#6366f1", borderRadius: 14, paddingHorizontal: 32, paddingVertical: 14 },
   permBtnText: { color: "#fff", fontWeight: "700", fontSize: 16 },
+
+  uploadOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.72)",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 16,
+    zIndex: 10,
+  },
+  uploadOverlayText: { color: "#fff", fontSize: 16, fontWeight: "600" },
 
   topBar: {
     position: "absolute",
@@ -241,10 +266,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  captureBtnInner: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
+  captureBtnInner: { width: 58, height: 58, borderRadius: 29, backgroundColor: "#fff" },
+
+  retryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
     backgroundColor: "#fff",
+    borderRadius: 16,
+    paddingHorizontal: 28,
+    paddingVertical: 14,
   },
+  retryBtnText: { color: "#6366f1", fontWeight: "700", fontSize: 16 },
 });
