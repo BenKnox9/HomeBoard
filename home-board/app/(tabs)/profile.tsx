@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { GRADES, gradeBadgeColor } from "@/lib/grades";
 import { ImageValidationError, prepareImage } from "@/lib/imageUtils";
+import { useTheme } from "@/contexts/ThemeContext";
 import { id } from "@instantdb/react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
@@ -19,6 +20,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useColorScheme,
   View,
 } from "react-native";
 
@@ -51,6 +53,7 @@ function SwipeablePlaylistRow({
   onPress: () => void;
   onDeleteRequest: () => void;
 }) {
+  const isDark = useColorScheme() === "dark";
   const translateX = useSharedValue(0);
   const savedX = useSharedValue(0);
 
@@ -127,15 +130,18 @@ function SwipeablePlaylistRow({
       {/* Swipeable row — Race ensures tap wins on clean press, pan wins on swipe */}
       <GestureDetector gesture={Gesture.Race(pan, tap)}>
         <Animated.View style={rowStyle}>
-          <View className="bg-white rounded-2xl p-4 flex-row items-center">
+          <View
+            className="rounded-2xl p-4 flex-row items-center"
+            style={{ backgroundColor: isDark ? "#1f2937" : "#ffffff" }}
+          >
             <View className="flex-1">
-              <Text className="text-gray-800 font-semibold">{pl.name}</Text>
-              <Text className="text-gray-400 text-xs mt-0.5">
+              <Text className="text-gray-800 dark:text-gray-100 font-semibold">{pl.name}</Text>
+              <Text className="text-gray-400 dark:text-gray-500 text-xs mt-0.5">
                 {pl.routes?.length ?? 0} route
                 {(pl.routes?.length ?? 0) !== 1 ? "s" : ""}
               </Text>
             </View>
-            <Text className="text-gray-300 text-lg">›</Text>
+            <Text className="text-gray-300 dark:text-gray-600 text-lg">›</Text>
           </View>
         </Animated.View>
       </GestureDetector>
@@ -147,6 +153,7 @@ function SwipeablePlaylistRow({
 
 export default function ProfileScreen() {
   const { user } = db.useAuth();
+  const { isDark, toggleTheme } = useTheme();
 
   const { isLoading, data } = db.useQuery(
     user
@@ -187,7 +194,7 @@ export default function ProfileScreen() {
 
   if (isLoading) {
     return (
-      <View className="flex-1 items-center justify-center bg-gray-50">
+      <View className="flex-1 items-center justify-center bg-gray-50 dark:bg-gray-900">
         <ActivityIndicator size="large" color="#6366f1" />
       </View>
     );
@@ -362,17 +369,32 @@ export default function ProfileScreen() {
   }
 
   return (
-    <ScrollView className="flex-1 bg-gray-50">
+    <ScrollView className="flex-1 bg-gray-50 dark:bg-gray-900">
       {/* Header */}
-      <View className="bg-white pt-14 px-4 pb-6 border-b border-gray-100">
-        <Text className="text-xl font-bold text-gray-800">Profile</Text>
-        <Text className="text-gray-400 text-sm mt-1">{user?.email}</Text>
+      <View className="bg-white dark:bg-gray-800 pt-14 px-4 pb-6 border-b border-gray-100 dark:border-gray-700">
+        <View className="flex-row items-center justify-between">
+          <Text className="text-xl font-bold text-gray-800 dark:text-gray-100">Profile</Text>
+          <TouchableOpacity
+            onPress={toggleTheme}
+            className="flex-row items-center gap-x-1.5 bg-gray-100 dark:bg-gray-700 rounded-xl px-3 py-1.5"
+          >
+            <Ionicons
+              name={isDark ? "sunny-outline" : "moon-outline"}
+              size={15}
+              color={isDark ? "#fbbf24" : "#6366f1"}
+            />
+            <Text className="text-gray-600 dark:text-gray-300 text-xs font-medium">
+              {isDark ? "Light mode" : "Dark mode"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+        <Text className="text-gray-400 dark:text-gray-500 text-sm mt-1">{user?.email}</Text>
 
         {/* Username */}
         {editingUsername ? (
           <View className="flex-row items-center mt-3 gap-x-2">
             <TextInput
-              className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 bg-gray-50"
+              className="flex-1 border border-gray-200 dark:border-gray-600 rounded-xl px-3 py-2 text-sm text-gray-800 dark:text-gray-100 bg-gray-50 dark:bg-gray-700"
               placeholder="Choose a username"
               placeholderTextColor="#9ca3af"
               value={usernameInput}
@@ -391,7 +413,7 @@ export default function ProfileScreen() {
               <Text className="text-white font-semibold text-sm">Save</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={() => setEditingUsername(false)}>
-              <Text className="text-gray-400 text-sm">Cancel</Text>
+              <Text className="text-gray-400 dark:text-gray-500 text-sm">Cancel</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -402,7 +424,7 @@ export default function ProfileScreen() {
             }}
             className="flex-row items-center mt-2 gap-x-1"
           >
-            <Text className="text-gray-600 text-sm">
+            <Text className="text-gray-600 dark:text-gray-300 text-sm">
               {currentUsername ? `@${currentUsername}` : "Set username"}
             </Text>
             <Ionicons name="pencil-outline" size={12} color="#9ca3af" />
@@ -411,31 +433,31 @@ export default function ProfileScreen() {
 
         <TouchableOpacity
           onPress={() => db.auth.signOut()}
-          className="mt-4 border border-gray-200 rounded-xl py-2 items-center"
+          className="mt-4 border border-gray-200 dark:border-gray-600 rounded-xl py-2 items-center"
         >
-          <Text className="text-gray-500 text-sm">Sign out</Text>
+          <Text className="text-gray-500 dark:text-gray-400 text-sm">Sign out</Text>
         </TouchableOpacity>
       </View>
 
       {/* Board Management */}
       <View className="mx-4 mt-6 mb-2">
-        <Text className="text-xs font-semibold text-gray-400 uppercase mb-3">
+        <Text className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase mb-3">
           Your board
         </Text>
-        <View className="bg-white rounded-2xl p-4">
+        <View className="bg-white dark:bg-gray-800 rounded-2xl p-4">
           {selectedBoard ? (
-            <Text className="text-gray-800 font-semibold text-base mb-3">
+            <Text className="text-gray-800 dark:text-gray-100 font-semibold text-base mb-3">
               {selectedBoard.name}
             </Text>
           ) : (
-            <Text className="text-gray-400 text-sm mb-3">No board selected</Text>
+            <Text className="text-gray-400 dark:text-gray-500 text-sm mb-3">No board selected</Text>
           )}
           <View className="flex-row gap-x-2">
             <TouchableOpacity
               onPress={() => setShowBoardPicker(true)}
-              className="flex-1 bg-gray-100 rounded-xl py-2 items-center"
+              className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-xl py-2 items-center"
             >
-              <Text className="text-gray-600 font-medium text-sm">
+              <Text className="text-gray-600 dark:text-gray-300 font-medium text-sm">
                 Change board
               </Text>
             </TouchableOpacity>
@@ -454,11 +476,11 @@ export default function ProfileScreen() {
                   params: { boardId: selectedBoard.id },
                 })
               }
-              className="mt-2 bg-gray-100 rounded-xl py-2.5 items-center flex-row justify-center"
+              className="mt-2 bg-gray-100 dark:bg-gray-700 rounded-xl py-2.5 items-center flex-row justify-center"
               style={{ gap: 6 }}
             >
-              <Ionicons name="camera-outline" size={16} color="#6b7280" />
-              <Text className="text-gray-600 font-medium text-sm">
+              <Ionicons name="camera-outline" size={16} color={isDark ? "#9ca3af" : "#6b7280"} />
+              <Text className="text-gray-600 dark:text-gray-300 font-medium text-sm">
                 Update board photo
               </Text>
             </TouchableOpacity>
@@ -470,20 +492,20 @@ export default function ProfileScreen() {
       {selectedBoard && (
         <View className="mx-4 mt-6 mb-2">
           <View className="flex-row items-center justify-between mb-3">
-            <Text className="text-xs font-semibold text-gray-400 uppercase">
+            <Text className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase">
               Playlists
             </Text>
             <TouchableOpacity onPress={() => setShowAddPlaylist(true)}>
-              <Text className="text-indigo-600 text-sm font-semibold">
+              <Text className="text-indigo-500 dark:text-indigo-400 text-sm font-semibold">
                 + New playlist
               </Text>
             </TouchableOpacity>
           </View>
 
           {showAddPlaylist && (
-            <View className="bg-white rounded-2xl p-4 mb-3">
+            <View className="bg-white dark:bg-gray-800 rounded-2xl p-4 mb-3">
               <TextInput
-                className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-800 bg-gray-50 mb-3"
+                className="border border-gray-200 dark:border-gray-600 rounded-xl px-4 py-2.5 text-sm text-gray-800 dark:text-gray-100 bg-gray-50 dark:bg-gray-700 mb-3"
                 placeholder="Playlist name"
                 placeholderTextColor="#9ca3af"
                 value={newPlaylistName}
@@ -499,9 +521,9 @@ export default function ProfileScreen() {
                     setShowAddPlaylist(false);
                     setNewPlaylistName("");
                   }}
-                  className="flex-1 bg-gray-100 rounded-xl py-2 items-center"
+                  className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-xl py-2 items-center"
                 >
-                  <Text className="text-gray-600 text-sm">Cancel</Text>
+                  <Text className="text-gray-600 dark:text-gray-300 text-sm">Cancel</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={addPlaylist}
@@ -518,8 +540,8 @@ export default function ProfileScreen() {
           )}
 
           {playlists.length === 0 ? (
-            <View className="bg-white rounded-2xl p-4">
-              <Text className="text-gray-400 text-sm text-center">
+            <View className="bg-white dark:bg-gray-800 rounded-2xl p-4">
+              <Text className="text-gray-400 dark:text-gray-500 text-sm text-center">
                 No playlists yet
               </Text>
             </View>
@@ -544,7 +566,7 @@ export default function ProfileScreen() {
       {/* Liked Routes */}
       {likedRoutes.length > 0 && (
         <View className="mx-4 mt-6 mb-2">
-          <Text className="text-xs font-semibold text-gray-400 uppercase mb-3">
+          <Text className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase mb-3">
             Liked routes
           </Text>
           {likedRoutes.map((r: any) => (
@@ -553,7 +575,7 @@ export default function ProfileScreen() {
               onPress={() =>
                 router.push({ pathname: "/route/[id]", params: { id: r.id } })
               }
-              className="bg-white rounded-2xl p-4 mb-2 flex-row items-center"
+              className="bg-white dark:bg-gray-800 rounded-2xl p-4 mb-2 flex-row items-center"
             >
               <View
                 className="rounded-xl items-center justify-center mr-3"
@@ -566,14 +588,14 @@ export default function ProfileScreen() {
                 <Text className="text-white font-bold text-xs">{r.grade}</Text>
               </View>
               <View className="flex-1">
-                <Text className="text-gray-800 font-semibold" numberOfLines={1}>
+                <Text className="text-gray-800 dark:text-gray-100 font-semibold" numberOfLines={1}>
                   {r.name}
                 </Text>
-                <Text className="text-gray-400 text-xs mt-0.5">
+                <Text className="text-gray-400 dark:text-gray-500 text-xs mt-0.5">
                   {r.ascents?.length ?? 0} ascent{(r.ascents?.length ?? 0) !== 1 ? "s" : ""}
                 </Text>
               </View>
-              <Text className="text-gray-300 text-lg">›</Text>
+              <Text className="text-gray-300 dark:text-gray-600 text-lg">›</Text>
             </TouchableOpacity>
           ))}
         </View>
@@ -581,17 +603,17 @@ export default function ProfileScreen() {
 
       {/* Statistics */}
       <View className="mx-4 mt-6 mb-10">
-        <Text className="text-xs font-semibold text-gray-400 uppercase mb-3">
+        <Text className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase mb-3">
           Statistics
         </Text>
-        <View className="bg-white rounded-2xl p-4">
+        <View className="bg-white dark:bg-gray-800 rounded-2xl p-4">
           <View className="flex-row mb-4">
             <StatBox label="Days climbed" value={String(uniqueDays)} />
             <StatBox label="Total ascents" value={String(ascents.length)} />
             <StatBox label="Climbs / session" value={climbsPerSession} />
           </View>
 
-          <Text className="text-xs font-semibold text-gray-400 uppercase mb-3">
+          <Text className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase mb-3">
             Ascents by grade
           </Text>
           {GRADES.map((g) => {
@@ -621,17 +643,17 @@ export default function ProfileScreen() {
                 >
                   <Text className="text-white text-xs font-bold">{g}</Text>
                 </View>
-                <Text className="text-gray-600 text-sm flex-1">
+                <Text className="text-gray-600 dark:text-gray-300 text-sm flex-1">
                   {count} ascent{count !== 1 ? "s" : ""}
                 </Text>
-                <Text className="text-gray-400 text-xs">
+                <Text className="text-gray-400 dark:text-gray-500 text-xs">
                   avg {avgAttempts} tries
                 </Text>
               </View>
             );
           })}
           {ascents.length === 0 && (
-            <Text className="text-gray-400 text-sm text-center py-2">
+            <Text className="text-gray-400 dark:text-gray-500 text-sm text-center py-2">
               Log some ascents to see stats
             </Text>
           )}
@@ -641,7 +663,7 @@ export default function ProfileScreen() {
       {/* Keyboard dismiss toolbar */}
       {Platform.OS === "ios" && (
         <InputAccessoryView nativeID={PROFILE_ACCESSORY_ID}>
-          <View style={{ flexDirection: "row", justifyContent: "flex-end", backgroundColor: "#f3f4f6", borderTopWidth: 1, borderTopColor: "#e5e7eb", paddingHorizontal: 16, paddingVertical: 8 }}>
+          <View style={{ flexDirection: "row", justifyContent: "flex-end", backgroundColor: isDark ? "#1f2937" : "#f3f4f6", borderTopWidth: 1, borderTopColor: isDark ? "#374151" : "#e5e7eb", paddingHorizontal: 16, paddingVertical: 8 }}>
             <TouchableOpacity onPress={() => Keyboard.dismiss()} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
               <Ionicons name="chevron-down" size={16} color="#6366f1" />
               <Text style={{ color: "#6366f1", fontWeight: "600", fontSize: 15 }}>Dismiss</Text>
@@ -662,7 +684,7 @@ export default function ProfileScreen() {
           activeOpacity={1}
           onPress={() => { setShowBoardPicker(false); setPickerCountry(null); }}
         >
-          <View className="bg-white rounded-t-3xl p-6">
+          <View className="bg-white dark:bg-gray-800 rounded-t-3xl p-6">
             {(() => {
               const anyHasCountry = (allBoards as any[]).some((b: any) => !!b.country);
               const boardCountries = (() => {
@@ -681,8 +703,8 @@ export default function ProfileScreen() {
               if (allBoards.length === 0) {
                 return (
                   <>
-                    <Text className="text-lg font-bold text-gray-800 mb-4">Select a board</Text>
-                    <Text className="text-gray-400 text-center py-4">
+                    <Text className="text-lg font-bold text-gray-800 dark:text-gray-100 mb-4">Select a board</Text>
+                    <Text className="text-gray-400 dark:text-gray-500 text-center py-4">
                       No boards available. Add one first.
                     </Text>
                   </>
@@ -702,7 +724,7 @@ export default function ProfileScreen() {
                           <Ionicons name="chevron-back" size={22} color="#6366f1" />
                         </TouchableOpacity>
                       )}
-                      <Text className="text-lg font-bold text-gray-800 flex-1">
+                      <Text className="text-lg font-bold text-gray-800 dark:text-gray-100 flex-1">
                         {anyHasCountry ? pickerCountry : "Select a board"}
                       </Text>
                     </View>
@@ -710,11 +732,11 @@ export default function ProfileScreen() {
                       <TouchableOpacity
                         key={b.id}
                         onPress={() => selectBoard(b.id)}
-                        className="py-3 border-b border-gray-100 flex-row items-center"
+                        className="py-3 border-b border-gray-100 dark:border-gray-700 flex-row items-center"
                       >
-                        <Text className="text-gray-800 flex-1">{b.name}</Text>
+                        <Text className="text-gray-800 dark:text-gray-100 flex-1">{b.name}</Text>
                         {selectedBoard?.id === b.id && (
-                          <Text className="text-indigo-600 font-semibold text-sm">Selected</Text>
+                          <Text className="text-indigo-500 dark:text-indigo-400 font-semibold text-sm">Selected</Text>
                         )}
                       </TouchableOpacity>
                     ))}
@@ -724,7 +746,7 @@ export default function ProfileScreen() {
 
               return (
                 <>
-                  <Text className="text-lg font-bold text-gray-800 mb-4">Select a country</Text>
+                  <Text className="text-lg font-bold text-gray-800 dark:text-gray-100 mb-4">Select a country</Text>
                   {boardCountries.map((c) => {
                     const count = (allBoards as any[]).filter((b: any) =>
                       c === "Other" ? !b.country : b.country === c
@@ -733,13 +755,13 @@ export default function ProfileScreen() {
                       <TouchableOpacity
                         key={c}
                         onPress={() => setPickerCountry(c)}
-                        className="py-3 border-b border-gray-100 flex-row items-center"
+                        className="py-3 border-b border-gray-100 dark:border-gray-700 flex-row items-center"
                       >
-                        <Text className="text-gray-800 flex-1">{c}</Text>
-                        <Text className="text-gray-400 text-sm mr-2">
+                        <Text className="text-gray-800 dark:text-gray-100 flex-1">{c}</Text>
+                        <Text className="text-gray-400 dark:text-gray-500 text-sm mr-2">
                           {count} board{count !== 1 ? "s" : ""}
                         </Text>
-                        <Ionicons name="chevron-forward" size={16} color="#d1d5db" />
+                        <Ionicons name="chevron-forward" size={16} color={isDark ? "#4b5563" : "#d1d5db"} />
                       </TouchableOpacity>
                     );
                   })}
@@ -748,9 +770,9 @@ export default function ProfileScreen() {
             })()}
             <TouchableOpacity
               onPress={() => { setShowBoardPicker(false); setPickerCountry(null); }}
-              className="mt-4 bg-gray-100 rounded-xl py-3 items-center"
+              className="mt-4 bg-gray-100 dark:bg-gray-700 rounded-xl py-3 items-center"
             >
-              <Text className="text-gray-600 font-medium">Cancel</Text>
+              <Text className="text-gray-600 dark:text-gray-300 font-medium">Cancel</Text>
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -768,16 +790,16 @@ export default function ProfileScreen() {
           activeOpacity={1}
           onPress={() => setShowCountryPicker(false)}
         >
-          <View style={{ backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: "70%", paddingTop: 20, paddingHorizontal: 24, paddingBottom: 24 }}>
-            <Text style={{ fontSize: 16, fontWeight: "700", color: "#111827", marginBottom: 12 }}>Select country</Text>
+          <View style={{ backgroundColor: isDark ? "#1f2937" : "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: "70%", paddingTop: 20, paddingHorizontal: 24, paddingBottom: 24 }}>
+            <Text style={{ fontSize: 16, fontWeight: "700", color: isDark ? "#f3f4f6" : "#111827", marginBottom: 12 }}>Select country</Text>
             <ScrollView showsVerticalScrollIndicator={false}>
               {COUNTRIES.map((c) => (
                 <TouchableOpacity
                   key={c}
                   onPress={() => { setNewBoardCountry(c); setShowCountryPicker(false); }}
-                  style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#f3f4f6", flexDirection: "row", alignItems: "center" }}
+                  style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: isDark ? "#374151" : "#f3f4f6", flexDirection: "row", alignItems: "center" }}
                 >
-                  <Text style={{ flex: 1, color: "#1f2937", fontSize: 15 }}>{c}</Text>
+                  <Text style={{ flex: 1, color: isDark ? "#e5e7eb" : "#1f2937", fontSize: 15 }}>{c}</Text>
                   {newBoardCountry === c && <Ionicons name="checkmark" size={18} color="#6366f1" />}
                 </TouchableOpacity>
               ))}
@@ -802,27 +824,27 @@ export default function ProfileScreen() {
             activeOpacity={1}
             onPress={() => setShowAddBoard(false)}
           />
-          <View className="bg-white rounded-t-3xl p-6">
-            <Text className="text-lg font-bold text-gray-800 mb-4">
+          <View className="bg-white dark:bg-gray-800 rounded-t-3xl p-6">
+            <Text className="text-lg font-bold text-gray-800 dark:text-gray-100 mb-4">
               Add a board
             </Text>
-            <Text className="text-xs font-semibold text-gray-400 uppercase mb-1">
+            <Text className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase mb-1">
               Country
             </Text>
             <TouchableOpacity
               onPress={() => setShowCountryPicker(true)}
-              className="border border-gray-200 rounded-xl px-4 py-3 bg-gray-50 mb-3 flex-row items-center justify-between"
+              className="border border-gray-200 dark:border-gray-600 rounded-xl px-4 py-3 bg-gray-50 dark:bg-gray-700 mb-3 flex-row items-center justify-between"
             >
-              <Text style={{ color: newBoardCountry ? "#1f2937" : "#9ca3af", fontSize: 14 }}>
+              <Text style={{ color: newBoardCountry ? (isDark ? "#e5e7eb" : "#1f2937") : "#9ca3af", fontSize: 14 }}>
                 {newBoardCountry || "Select a country"}
               </Text>
               <Ionicons name="chevron-down" size={16} color="#9ca3af" />
             </TouchableOpacity>
-            <Text className="text-xs font-semibold text-gray-400 uppercase mb-1">
+            <Text className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase mb-1">
               Name
             </Text>
             <TextInput
-              className="border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-800 bg-gray-50 mb-3"
+              className="border border-gray-200 dark:border-gray-600 rounded-xl px-4 py-3 text-sm text-gray-800 dark:text-gray-100 bg-gray-50 dark:bg-gray-700 mb-3"
               placeholder="e.g. Garage wall"
               placeholderTextColor="#9ca3af"
               value={newBoardName}
@@ -830,11 +852,11 @@ export default function ProfileScreen() {
               returnKeyType="next"
               inputAccessoryViewID={PROFILE_ACCESSORY_ID}
             />
-            <Text className="text-xs font-semibold text-gray-400 uppercase mb-1">
+            <Text className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase mb-1">
               Description (optional)
             </Text>
             <TextInput
-              className="border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-800 bg-gray-50 mb-4"
+              className="border border-gray-200 dark:border-gray-600 rounded-xl px-4 py-3 text-sm text-gray-800 dark:text-gray-100 bg-gray-50 dark:bg-gray-700 mb-4"
               placeholder="A short description of your board"
               placeholderTextColor="#9ca3af"
               value={newBoardDesc}
@@ -842,7 +864,7 @@ export default function ProfileScreen() {
               multiline
               inputAccessoryViewID={PROFILE_ACCESSORY_ID}
             />
-            <Text className="text-gray-400 text-xs text-center mb-4">
+            <Text className="text-gray-400 dark:text-gray-500 text-xs text-center mb-4">
               You'll be prompted to choose a photo of your board.
             </Text>
             <View className="flex-row gap-x-2">
@@ -853,9 +875,9 @@ export default function ProfileScreen() {
                   setNewBoardDesc("");
                   setNewBoardCountry("");
                 }}
-                className="flex-1 bg-gray-100 rounded-xl py-3 items-center"
+                className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-xl py-3 items-center"
               >
-                <Text className="text-gray-600 font-medium">Cancel</Text>
+                <Text className="text-gray-600 dark:text-gray-300 font-medium">Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={addBoard}
@@ -880,8 +902,8 @@ export default function ProfileScreen() {
 function StatBox({ label, value }: { label: string; value: string }) {
   return (
     <View className="flex-1 items-center">
-      <Text className="text-2xl font-bold text-indigo-600">{value}</Text>
-      <Text className="text-gray-400 text-xs text-center mt-0.5">{label}</Text>
+      <Text className="text-2xl font-bold text-indigo-500 dark:text-indigo-400">{value}</Text>
+      <Text className="text-gray-400 dark:text-gray-500 text-xs text-center mt-0.5">{label}</Text>
     </View>
   );
 }

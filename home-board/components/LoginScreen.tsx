@@ -71,18 +71,18 @@ export default function LoginScreen() {
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : "height"}
-      className="flex-1 bg-indigo-50"
+      className="flex-1 bg-indigo-50 dark:bg-gray-900"
     >
       <View className="flex-1 items-center justify-center px-8">
-        <View className="w-full max-w-sm bg-white rounded-3xl shadow-lg p-8">
+        <View className="w-full max-w-sm bg-white dark:bg-gray-800 rounded-3xl shadow-lg p-8">
           <Text className="text-3xl font-bold text-indigo-600 mb-1">HomeBoard</Text>
-          <Text className="text-gray-400 mb-8 text-sm">Sign in to your account</Text>
+          <Text className="text-gray-400 dark:text-gray-500 mb-8 text-sm">Sign in to your account</Text>
 
           {!sentEmail ? (
             <>
-              <Text className="text-xs font-semibold text-gray-500 uppercase mb-2">Email</Text>
+              <Text className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-2">Email</Text>
               <TextInput
-                className="border border-gray-200 rounded-xl px-4 py-3 text-base text-gray-800 mb-4 bg-gray-50"
+                className="border border-gray-200 dark:border-gray-600 rounded-xl px-4 py-3 text-base text-gray-800 dark:text-gray-100 mb-4 bg-gray-50 dark:bg-gray-700"
                 placeholder="you@example.com"
                 placeholderTextColor="#9ca3af"
                 keyboardType="email-address"
@@ -113,13 +113,13 @@ export default function LoginScreen() {
             </>
           ) : (
             <>
-              <Text className="text-gray-600 text-sm mb-4">
+              <Text className="text-gray-600 dark:text-gray-300 text-sm mb-4">
                 Code sent to{" "}
-                <Text className="font-semibold text-gray-800">{sentEmail}</Text>
+                <Text className="font-semibold text-gray-800 dark:text-gray-100">{sentEmail}</Text>
               </Text>
-              <Text className="text-xs font-semibold text-gray-500 uppercase mb-2">Magic code</Text>
+              <Text className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-2">Magic code</Text>
               <TextInput
-                className="border border-gray-200 rounded-xl px-4 py-3 text-base text-gray-800 mb-4 bg-gray-50 tracking-widest"
+                className="border border-gray-200 dark:border-gray-600 rounded-xl px-4 py-3 text-base text-gray-800 dark:text-gray-100 mb-4 bg-gray-50 dark:bg-gray-700 tracking-widest"
                 placeholder="000000"
                 placeholderTextColor="#9ca3af"
                 keyboardType="number-pad"

@@ -14,6 +14,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useColorScheme,
   View,
 } from "react-native";
 
@@ -29,6 +30,7 @@ interface SortState {
 
 export default function RoutesScreen() {
   const { user } = db.useAuth();
+  const isDark = useColorScheme() === "dark";
   const [gradeFilters, setGradeFilters] = useState<Set<string>>(new Set());
   const [sort, setSort] = useState<SortState | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -66,7 +68,7 @@ export default function RoutesScreen() {
 
   if (isLoading) {
     return (
-      <View className="flex-1 items-center justify-center bg-gray-50">
+      <View className="flex-1 items-center justify-center bg-gray-50 dark:bg-gray-900">
         <ActivityIndicator size="large" color="#6366f1" />
       </View>
     );
@@ -74,7 +76,7 @@ export default function RoutesScreen() {
 
   if (error) {
     return (
-      <View className="flex-1 items-center justify-center bg-gray-50 px-6">
+      <View className="flex-1 items-center justify-center bg-gray-50 dark:bg-gray-900 px-6">
         <Text className="text-red-500 text-center">{error.message}</Text>
       </View>
     );
@@ -112,11 +114,11 @@ export default function RoutesScreen() {
 
   if (!selectedBoard) {
     return (
-      <View className="flex-1 items-center justify-center bg-gray-50 px-8">
-        <Text className="text-2xl font-bold text-gray-700 mb-2 text-center">
+      <View className="flex-1 items-center justify-center bg-gray-50 dark:bg-gray-900 px-8">
+        <Text className="text-2xl font-bold text-gray-700 dark:text-gray-200 mb-2 text-center">
           No board selected
         </Text>
-        <Text className="text-gray-400 text-center mb-6">
+        <Text className="text-gray-400 dark:text-gray-500 text-center mb-6">
           Go to your profile to add or select a board.
         </Text>
         <TouchableOpacity
@@ -135,11 +137,11 @@ export default function RoutesScreen() {
       <TouchableOpacity
         onPress={() => cycleSort(field)}
         className="flex-row items-center rounded-lg px-3 py-1.5 gap-x-1"
-        style={{ backgroundColor: active ? "#6366f1" : "#f3f4f6" }}
+        style={{ backgroundColor: active ? "#6366f1" : (isDark ? "#374151" : "#f3f4f6") }}
       >
         <Text
           className="text-xs font-semibold"
-          style={{ color: active ? "#fff" : "#6b7280" }}
+          style={{ color: active ? "#fff" : (isDark ? "#9ca3af" : "#6b7280") }}
         >
           {label}
         </Text>
@@ -155,19 +157,19 @@ export default function RoutesScreen() {
   }
 
   return (
-    <View className="flex-1 bg-gray-50">
+    <View className="flex-1 bg-gray-50 dark:bg-gray-900">
       {/* Header */}
-      <View className="pt-14 px-4 pb-3 bg-white border-b border-gray-100">
-        <Text className="text-xl font-bold text-gray-800">
+      <View className="pt-14 px-4 pb-3 bg-white dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700">
+        <Text className="text-xl font-bold text-gray-800 dark:text-gray-100">
           {selectedBoard.name}
         </Text>
-        <Text className="text-gray-400 text-xs mt-0.5">
+        <Text className="text-gray-400 dark:text-gray-500 text-xs mt-0.5">
           {allRoutes.length} route{allRoutes.length !== 1 ? "s" : ""}
         </Text>
       </View>
 
       {/* Filter & sort bar */}
-      <View className="bg-white border-b border-gray-100 pb-2">
+      <View className="bg-white dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700 pb-2">
         {/* Sort buttons */}
         <View className="flex-row px-4 pt-2 gap-x-2">
           <SortButton field="grade" label="By grade" />
@@ -175,10 +177,10 @@ export default function RoutesScreen() {
         </View>
 
         {/* Search bar */}
-        <View className="flex-row items-center mx-4 mt-2 bg-gray-100 rounded-xl px-3 gap-x-2">
+        <View className="flex-row items-center mx-4 mt-2 bg-gray-100 dark:bg-gray-700 rounded-xl px-3 gap-x-2">
           <Ionicons name="search-outline" size={16} color="#9ca3af" />
           <TextInput
-            className="flex-1 py-2 text-sm text-gray-800"
+            className="flex-1 py-2 text-sm text-gray-800 dark:text-gray-100"
             placeholder="Search by name or @username…"
             placeholderTextColor="#9ca3af"
             value={searchQuery}
@@ -230,11 +232,11 @@ export default function RoutesScreen() {
                   })
                 }
                 className="rounded-full px-3 py-1"
-                style={{ backgroundColor: active ? "#6366f1" : "#e5e7eb" }}
+                style={{ backgroundColor: active ? "#6366f1" : (isDark ? "#374151" : "#e5e7eb") }}
               >
                 <Text
                   className="text-xs font-semibold"
-                  style={{ color: active ? "#fff" : "#4b5563" }}
+                  style={{ color: active ? "#fff" : (isDark ? "#d1d5db" : "#4b5563") }}
                 >
                   {g}
                 </Text>
@@ -247,7 +249,7 @@ export default function RoutesScreen() {
       {/* Route list */}
       {filteredRoutes.length === 0 ? (
         <View className="flex-1 items-center justify-center">
-          <Text className="text-gray-400 text-base">
+          <Text className="text-gray-400 dark:text-gray-500 text-base">
             {allRoutes.length === 0
               ? "No routes yet — tap + to add one"
               : "No routes match this filter"}
@@ -279,7 +281,7 @@ export default function RoutesScreen() {
                 onPress={() => setVisibleCount((n) => n + PAGE_SIZE)}
                 className="items-center py-4 mb-2"
               >
-                <Text className="text-indigo-600 font-semibold text-sm">
+                <Text className="text-indigo-500 dark:text-indigo-400 font-semibold text-sm">
                   Load more ({filteredRoutes.length - visibleCount} remaining)
                 </Text>
               </TouchableOpacity>
@@ -291,7 +293,7 @@ export default function RoutesScreen() {
       {/* Keyboard dismiss toolbar */}
       {Platform.OS === "ios" && (
         <InputAccessoryView nativeID={SEARCH_ACCESSORY_ID}>
-          <View style={{ flexDirection: "row", justifyContent: "flex-end", backgroundColor: "#f3f4f6", borderTopWidth: 1, borderTopColor: "#e5e7eb", paddingHorizontal: 16, paddingVertical: 8 }}>
+          <View style={{ flexDirection: "row", justifyContent: "flex-end", backgroundColor: isDark ? "#1f2937" : "#f3f4f6", borderTopWidth: 1, borderTopColor: isDark ? "#374151" : "#e5e7eb", paddingHorizontal: 16, paddingVertical: 8 }}>
             <TouchableOpacity onPress={() => Keyboard.dismiss()} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
               <Ionicons name="chevron-down" size={16} color="#6366f1" />
               <Text style={{ color: "#6366f1", fontWeight: "600", fontSize: 15 }}>Dismiss</Text>

@@ -13,6 +13,7 @@ import {
   Text,
   TouchableOpacity,
   UIManager,
+  useColorScheme,
   View,
 } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
@@ -56,11 +57,12 @@ function sortByOrder(routes: any[], order: string[]): any[] {
 // ── Ghost card (follows the finger while dragging) ────────────────────────────
 
 function GhostCard({ route }: { route: any }) {
+  const isDark = useColorScheme() === "dark";
   const badgeColor = gradeBadgeColor(route.grade);
   return (
     <View
       style={{
-        backgroundColor: "#fff",
+        backgroundColor: isDark ? "#1f2937" : "#fff",
         borderRadius: 16,
         padding: 16,
         flexDirection: "row",
@@ -88,7 +90,7 @@ function GhostCard({ route }: { route: any }) {
         </Text>
       </View>
       <Text
-        style={{ flex: 1, color: "#111827", fontWeight: "600", fontSize: 16 }}
+        style={{ flex: 1, color: isDark ? "#f3f4f6" : "#111827", fontWeight: "600", fontSize: 16 }}
         numberOfLines={1}
       >
         {route.name}
@@ -127,6 +129,7 @@ function SwipeableRouteRow({
   onHandleClose: () => void;
   onItemLayout: (y: number, height: number) => void;
 }) {
+  const isDark = useColorScheme() === "dark";
   const translateX = useSharedValue(0);
   const savedX = useSharedValue(0);
 
@@ -233,16 +236,16 @@ function SwipeableRouteRow({
         <Animated.View style={rowStyle}>
           <View
             style={{
-              backgroundColor: "#fff",
+              backgroundColor: isDark ? "#1f2937" : "#fff",
               borderRadius: 16,
               padding: 16,
               flexDirection: "row",
               alignItems: "center",
               shadowColor: "#000",
               shadowOffset: { width: 0, height: 1 },
-              shadowOpacity: 0.06,
+              shadowOpacity: isDark ? 0 : 0.06,
               shadowRadius: 4,
-              elevation: 2,
+              elevation: isDark ? 0 : 2,
             }}
           >
             <View
@@ -262,7 +265,7 @@ function SwipeableRouteRow({
             </View>
             <View style={{ flex: 1 }}>
               <Text
-                style={{ color: "#111827", fontWeight: "600", fontSize: 16 }}
+                style={{ color: isDark ? "#f3f4f6" : "#111827", fontWeight: "600", fontSize: 16 }}
                 numberOfLines={1}
               >
                 {route.name}
@@ -274,7 +277,7 @@ function SwipeableRouteRow({
                 {ascentCount}
               </Text>
             </View>
-            <Ionicons name="chevron-forward" size={18} color="#d1d5db" style={{ marginLeft: 8 }} />
+            <Ionicons name="chevron-forward" size={18} color={isDark ? "#4b5563" : "#d1d5db"} style={{ marginLeft: 8 }} />
           </View>
         </Animated.View>
       </GestureDetector>
@@ -287,6 +290,7 @@ function SwipeableRouteRow({
 export default function PlaylistDetailScreen() {
   const { id: playlistId } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const isDark = useColorScheme() === "dark";
 
   const { isLoading, error, data } = db.useQuery(
     playlistId
@@ -468,7 +472,7 @@ export default function PlaylistDetailScreen() {
 
   if (isLoading) {
     return (
-      <View className="flex-1 items-center justify-center bg-gray-50">
+      <View className="flex-1 items-center justify-center bg-gray-50 dark:bg-gray-900">
         <ActivityIndicator size="large" color="#6366f1" />
       </View>
     );
@@ -476,7 +480,7 @@ export default function PlaylistDetailScreen() {
 
   if (error || !playlist) {
     return (
-      <View className="flex-1 items-center justify-center bg-gray-50 px-6">
+      <View className="flex-1 items-center justify-center bg-gray-50 dark:bg-gray-900 px-6">
         <Text className="text-red-500 text-center">
           {error?.message ?? "Playlist not found"}
         </Text>
@@ -491,12 +495,12 @@ export default function PlaylistDetailScreen() {
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <View className="flex-1 bg-gray-50">
+    <View className="flex-1 bg-gray-50 dark:bg-gray-900">
       <Stack.Screen
         options={{
           headerTitle: () => (
             <View style={{ alignItems: "center" }}>
-              <Text style={{ fontWeight: "700", fontSize: 17, color: "#111827" }}>
+              <Text style={{ fontWeight: "700", fontSize: 17, color: isDark ? "#f3f4f6" : "#111827" }}>
                 {(playlist as any).name}
               </Text>
               <Text style={{ fontSize: 12, color: "#9ca3af", marginTop: 1 }}>
@@ -504,13 +508,15 @@ export default function PlaylistDetailScreen() {
               </Text>
             </View>
           ),
+          headerStyle: { backgroundColor: isDark ? "#111827" : "#ffffff" },
+          headerTintColor: isDark ? "#e5e7eb" : "#111827",
         }}
       />
 
       {sortedRoutes.length === 0 ? (
         <View className="flex-1 items-center justify-center">
-          <Text className="text-gray-400 text-base">No routes in this playlist yet.</Text>
-          <Text className="text-gray-400 text-sm mt-1">Add routes from their detail page.</Text>
+          <Text className="text-gray-400 dark:text-gray-500 text-base">No routes in this playlist yet.</Text>
+          <Text className="text-gray-400 dark:text-gray-500 text-sm mt-1">Add routes from their detail page.</Text>
         </View>
       ) : (
         <ScrollView

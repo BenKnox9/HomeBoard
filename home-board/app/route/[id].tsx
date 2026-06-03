@@ -24,6 +24,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useColorScheme,
   View,
 } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
@@ -136,6 +137,7 @@ export default function RouteDetailScreen() {
     useLocalSearchParams<{ id: string; routeIds?: string }>();
   const insets = useSafeAreaInsets();
   const { user } = db.useAuth();
+  const isDark = useColorScheme() === "dark";
 
   const routeIds: string[] = (() => {
     const raw = Array.isArray(routeIdsParam) ? routeIdsParam[0] : routeIdsParam;
@@ -782,7 +784,7 @@ export default function RouteDetailScreen() {
             activeOpacity={1}
             onPress={() => setShowInfo(false)}
           />
-          <View style={styles.sheet}>
+          <View style={[styles.sheet, { backgroundColor: isDark ? "#1f2937" : "#fff" }]}>
             {/* Draggable handle — pan down to dismiss */}
             <GestureDetector
               gesture={Gesture.Pan()
@@ -794,7 +796,7 @@ export default function RouteDetailScreen() {
                 })}
             >
               <View style={{ paddingTop: 12, paddingBottom: 8, alignItems: "center" }}>
-                <View style={styles.handle} />
+                <View style={[styles.handle, { backgroundColor: isDark ? "#4b5563" : "#e5e7eb" }]} />
               </View>
             </GestureDetector>
             <ScrollView
@@ -803,7 +805,7 @@ export default function RouteDetailScreen() {
               showsVerticalScrollIndicator={false}
             >
               <Text style={styles.sectionLabel}>Statistics</Text>
-              <View style={styles.statsRow}>
+              <View style={[styles.statsRow, { backgroundColor: isDark ? "#111827" : "#f9fafb" }]}>
                 <StatCell label="Total" value={String(allAscents.length)} />
                 <StatCell label="Yours" value={String(myAscents.length)} />
                 <StatCell
@@ -835,7 +837,7 @@ export default function RouteDetailScreen() {
 
               <TouchableOpacity
                 onPress={toggleLike}
-                style={[styles.infoRow, { marginBottom: 10 }]}
+                style={[styles.infoRow, { marginBottom: 10, backgroundColor: isDark ? "#111827" : "#f9fafb" }]}
               >
                 <Ionicons
                   name={isLiked ? "heart" : "heart-outline"}
@@ -857,7 +859,7 @@ export default function RouteDetailScreen() {
                   setShowInfo(false);
                   setShowPlaylistModal(true);
                 }}
-                style={styles.infoRow}
+                style={[styles.infoRow, { backgroundColor: isDark ? "#111827" : "#f9fafb" }]}
               >
                 <Ionicons name="bookmark-outline" size={20} color="#6b7280" />
                 <Text style={[styles.infoRowText, { color: "#6b7280" }]}>
@@ -872,14 +874,14 @@ export default function RouteDetailScreen() {
                       setShowInfo(false);
                       router.push({ pathname: "/edit-route", params: { routeId: currentRoute.id } });
                     }}
-                    style={styles.infoRow}
+                    style={[styles.infoRow, { backgroundColor: isDark ? "#111827" : "#f9fafb" }]}
                   >
                     <Ionicons name="pencil-outline" size={20} color="#6366f1" />
                     <Text style={[styles.infoRowText, { color: "#6366f1" }]}>Edit holds</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     onPress={() => { setShowInfo(false); deleteRoute(); }}
-                    style={[styles.infoRow, { marginBottom: 20 }]}
+                    style={[styles.infoRow, { marginBottom: 20, backgroundColor: isDark ? "#111827" : "#f9fafb" }]}
                   >
                     <Ionicons name="trash-outline" size={20} color="#ef4444" />
                     <Text style={[styles.infoRowText, { color: "#ef4444" }]}>Delete route</Text>
@@ -911,13 +913,13 @@ export default function RouteDetailScreen() {
                       styles.avatar,
                       {
                         backgroundColor:
-                          c.user?.id === user?.id ? "#6366f1" : "#e5e7eb",
+                          c.user?.id === user?.id ? "#6366f1" : (isDark ? "#374151" : "#e5e7eb"),
                       },
                     ]}
                   >
                     <Text
                       style={{
-                        color: c.user?.id === user?.id ? "#fff" : "#6b7280",
+                        color: c.user?.id === user?.id ? "#fff" : (isDark ? "#9ca3af" : "#6b7280"),
                         fontSize: 11,
                         fontWeight: "700",
                       }}
@@ -938,16 +940,16 @@ export default function RouteDetailScreen() {
                         style={{
                           fontSize: 12,
                           fontWeight: "600",
-                          color: "#374151",
+                          color: isDark ? "#e5e7eb" : "#374151",
                         }}
                       >
                         {commentAuthor(c)}
                       </Text>
-                      <Text style={{ fontSize: 11, color: "#d1d5db" }}>
+                      <Text style={{ fontSize: 11, color: isDark ? "#4b5563" : "#d1d5db" }}>
                         {timeAgo(c.createdAt)}
                       </Text>
                     </View>
-                    <Text style={{ fontSize: 14, color: "#4b5563" }}>
+                    <Text style={{ fontSize: 14, color: isDark ? "#d1d5db" : "#4b5563" }}>
                       {c.text}
                     </Text>
                   </View>
@@ -956,7 +958,7 @@ export default function RouteDetailScreen() {
                       onPress={() => deleteComment(c.id)}
                       style={{ padding: 4, marginLeft: 4 }}
                     >
-                      <Ionicons name="close" size={14} color="#d1d5db" />
+                      <Ionicons name="close" size={14} color={isDark ? "#4b5563" : "#d1d5db"} />
                     </TouchableOpacity>
                   )}
                 </View>
@@ -971,7 +973,7 @@ export default function RouteDetailScreen() {
                 }}
               >
                 <TextInput
-                  style={styles.commentInput}
+                  style={[styles.commentInput, { backgroundColor: isDark ? "#374151" : "#f3f4f6", color: isDark ? "#e5e7eb" : "#111827" }]}
                   placeholder="Add a comment…"
                   placeholderTextColor="#9ca3af"
                   value={commentText}
@@ -1019,14 +1021,14 @@ export default function RouteDetailScreen() {
           activeOpacity={1}
           onPress={() => setShowPlaylistModal(false)}
         >
-          <View style={styles.sheet}>
-            <View style={styles.handle} />
+          <View style={[styles.sheet, { backgroundColor: isDark ? "#1f2937" : "#fff" }]}>
+            <View style={[styles.handle, { backgroundColor: isDark ? "#4b5563" : "#e5e7eb" }]} />
             <View style={{ padding: 24 }}>
               <Text
                 style={{
                   fontSize: 17,
                   fontWeight: "700",
-                  color: "#111827",
+                  color: isDark ? "#f3f4f6" : "#111827",
                   marginBottom: 16,
                 }}
               >
@@ -1051,13 +1053,13 @@ export default function RouteDetailScreen() {
                     <TouchableOpacity
                       key={pl.id}
                       onPress={() => togglePlaylist(pl)}
-                      style={styles.playlistRow}
+                      style={[styles.playlistRow, { borderBottomColor: isDark ? "#374151" : "#f3f4f6" }]}
                     >
                       <View
                         style={[
                           styles.checkbox,
                           {
-                            borderColor: inPl ? "#6366f1" : "#d1d5db",
+                            borderColor: inPl ? "#6366f1" : (isDark ? "#4b5563" : "#d1d5db"),
                             backgroundColor: inPl ? "#6366f1" : "transparent",
                           },
                         ]}
@@ -1066,7 +1068,7 @@ export default function RouteDetailScreen() {
                           <Text style={{ color: "#fff", fontSize: 10 }}>✓</Text>
                         )}
                       </View>
-                      <Text style={{ flex: 1, color: "#111827" }}>
+                      <Text style={{ flex: 1, color: isDark ? "#e5e7eb" : "#111827" }}>
                         {pl.name}
                       </Text>
                       <Text style={{ color: "#9ca3af", fontSize: 12 }}>
@@ -1078,9 +1080,9 @@ export default function RouteDetailScreen() {
               )}
               <TouchableOpacity
                 onPress={() => setShowPlaylistModal(false)}
-                style={styles.doneBtn}
+                style={[styles.doneBtn, { backgroundColor: isDark ? "#374151" : "#f3f4f6" }]}
               >
-                <Text style={{ color: "#4b5563", fontWeight: "500" }}>Done</Text>
+                <Text style={{ color: isDark ? "#d1d5db" : "#4b5563", fontWeight: "500" }}>Done</Text>
               </TouchableOpacity>
             </View>
           </View>
