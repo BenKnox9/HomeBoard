@@ -1,4 +1,5 @@
 import "../global.css";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import LoginScreen from "@/components/LoginScreen";
 import OnboardingModal from "@/components/OnboardingModal";
 import { ThemeProvider } from "@/contexts/ThemeContext";
@@ -42,39 +43,41 @@ export default function RootLayout() {
   return (
     <ThemeProvider>
       <GestureHandlerRootView style={{ flex: 1 }}>
-        <Stack>
-          <Stack.Screen name="(tabs)" options={{ headerShown: false, title: "Profile" }} />
-          <Stack.Screen name="route/[id]" options={{ headerShown: false }} />
-          <Stack.Screen name="playlist/[id]" options={{}} />
-          <Stack.Screen
-            name="create-route"
-            options={{
-              headerTitle: "New route",
-              presentation: "modal",
-              headerTransparent: true,
-              headerTintColor: "#fff",
-            }}
-          />
-          <Stack.Screen
-            name="edit-route"
-            options={{
-              headerTitle: "Edit route",
-              presentation: "modal",
-              headerTransparent: true,
-              headerTintColor: "#fff",
-            }}
-          />
-          <Stack.Screen
-            name="update-board-photo"
-            options={{ headerShown: false }}
-          />
-          <Stack.Screen
-            name="verify-routes"
-            options={{ headerShown: false }}
-          />
-        </Stack>
-        <OnboardingModal />
-        <StatusBar style="auto" />
+        <ErrorBoundary>
+          <Stack>
+            <Stack.Screen name="(tabs)" options={{ headerShown: false, title: "Profile" }} />
+            <Stack.Screen name="route/[id]" options={{ headerShown: false }} />
+            <Stack.Screen name="playlist/[id]" options={{}} />
+            <Stack.Screen
+              name="create-route"
+              options={{
+                headerTitle: "New route",
+                presentation: "modal",
+                headerTransparent: true,
+                headerTintColor: "#fff",
+              }}
+            />
+            <Stack.Screen
+              name="edit-route"
+              options={{
+                headerTitle: "Edit route",
+                presentation: "modal",
+                headerTransparent: true,
+                headerTintColor: "#fff",
+              }}
+            />
+            <Stack.Screen
+              name="update-board-photo"
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="verify-routes"
+              options={{ headerShown: false }}
+            />
+          </Stack>
+          <OnboardingModal />
+          <StatusBar style="auto" />
+        </ErrorBoundary>
       </GestureHandlerRootView>
     </ThemeProvider>
   );

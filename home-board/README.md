@@ -1,4 +1,4 @@
-# HomeBoard
+# BackyardBoard
 
 A mobile app for tracking routes on your home climbing board. Set routes, log ascents, organise playlists, and follow progress over time — built for climbers who train at home.
 

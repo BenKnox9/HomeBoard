@@ -192,31 +192,11 @@ export default function ProfileScreen() {
   const [usernameInput, setUsernameInput] = useState("");
   const [pickerCountry, setPickerCountry] = useState<string | null>(null);
 
-  if (isLoading) {
-    return (
-      <View className="flex-1 items-center justify-center bg-gray-50 dark:bg-gray-900">
-        <ActivityIndicator size="large" color="#6366f1" />
-      </View>
-    );
-  }
-
   const currentUser = data?.$users?.[0];
   const selectedBoard = currentUser?.selectedBoard;
   const ascents = currentUser?.ascents ?? [];
   const allBoards = data?.boards ?? [];
   const currentUsername = (currentUser as any)?.username as string | undefined;
-
-  const playlists = (currentUser?.playlists ?? []).filter(
-    (pl: any) => pl.board?.id === selectedBoard?.id || selectedBoard == null
-  );
-
-  const likedRoutes = (currentUser?.likes ?? [])
-    .map((l: any) => l.route)
-    .filter(Boolean)
-    .filter(
-      (r: any, i: number, arr: any[]) =>
-        arr.findIndex((x) => x.id === r.id) === i
-    );
 
   const { uniqueDays, sessions, climbsPerSession } = useMemo(() => {
     const SESSION_GAP_MS = 60 * 60 * 1000;
@@ -231,6 +211,26 @@ export default function ProfileScreen() {
     }
     return { uniqueDays: ud, sessions: s, climbsPerSession: (ascents.length / s).toFixed(1) };
   }, [ascents]);
+
+  if (isLoading) {
+    return (
+      <View className="flex-1 items-center justify-center bg-gray-50 dark:bg-gray-900">
+        <ActivityIndicator size="large" color="#6366f1" />
+      </View>
+    );
+  }
+
+  const playlists = (currentUser?.playlists ?? []).filter(
+    (pl: any) => pl.board?.id === selectedBoard?.id || selectedBoard == null
+  );
+
+  const likedRoutes = (currentUser?.likes ?? [])
+    .map((l: any) => l.route)
+    .filter(Boolean)
+    .filter(
+      (r: any, i: number, arr: any[]) =>
+        arr.findIndex((x) => x.id === r.id) === i
+    );
 
   async function saveUsername() {
     if (!user) return;

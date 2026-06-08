@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "HomeBoard",
-    "slug": "HomeBoard",
+    "name": "BackyardBoard",
+    "slug": "home-board",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -10,7 +10,10 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.knox.homeboard"
+      "bundleIdentifier": "com.knox.homeboard",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
