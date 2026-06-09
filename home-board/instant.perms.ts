@@ -37,21 +37,21 @@ const rules = {
   ascents: {
     allow: {
       view: "true",
-      create: "auth.id != null",
+      create: "auth.id != null && auth.id in data.ref('user.id')",
       delete: "auth.id != null && auth.id in data.ref('user.id')",
     },
   },
   likes: {
     allow: {
       view: "true",
-      create: "auth.id != null",
+      create: "auth.id != null && auth.id in data.ref('user.id')",
       delete: "auth.id != null && auth.id in data.ref('user.id')",
     },
   },
   comments: {
     allow: {
       view: "true",
-      create: "auth.id != null",
+      create: "auth.id != null && auth.id in data.ref('user.id')",
       update: "auth.id != null && auth.id in data.ref('user.id')",
       delete: "auth.id != null && auth.id in data.ref('user.id')",
     },

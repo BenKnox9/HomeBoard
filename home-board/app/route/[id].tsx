@@ -6,7 +6,7 @@ import {
   colorWithAlpha,
 } from "@/components/HoldOverlay";
 import { db } from "@/lib/db";
-import { gradeBadgeColor } from "@/lib/grades";
+import { GRADES, gradeBadgeColor } from "@/lib/grades";
 import { id } from "@instantdb/react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -67,7 +67,8 @@ function RouteInfoBar({
     (a: any) => a.user?.id === userId
   );
   const hasAscended = myAscents.length > 0;
-  const badgeColor = gradeBadgeColor(route.grade);
+  const safeGrade = GRADES.includes(route.grade) ? route.grade : "V0";
+  const badgeColor = gradeBadgeColor(safeGrade);
   const creator = route.creator;
   const creatorLabel = creator?.username
     ? `@${creator.username}`
@@ -78,7 +79,7 @@ function RouteInfoBar({
   return (
     <View style={styles.infoBar}>
       <View style={[styles.gradeBadge, { backgroundColor: badgeColor }]}>
-        <Text style={styles.gradeText}>{route.grade}</Text>
+        <Text style={styles.gradeText}>{safeGrade}</Text>
       </View>
       <View style={{ flex: 1 }}>
         <Text style={styles.routeName} numberOfLines={1}>
@@ -227,6 +228,7 @@ export default function RouteDetailScreen() {
             likes: { user: {} },
             comments: { user: {} },
             creator: {},
+            playlists: {},
           },
           $users: {
             $: { where: { id: user.id } },
@@ -461,56 +463,32 @@ export default function RouteDetailScreen() {
     try {
       await db.transact([
         db.tx.ascents[id()]
-          .update({ attempts: falls, loggedAt: Date.now() })
+          .update({ attempts: Math.max(0, falls), loggedAt: Date.now() })
           .link({ route: displayedId, user: user.id }),
       ]);
       ascentedInSession.current.add(displayedId);
       setFalls(0);
+    } catch (e: any) {
+      Alert.alert("Error", e.message ?? "Failed to log ascent.");
     } finally {
       setLogging(false);
     }
   }
 
-  async function deleteRoute() {
-    if (!currentRoute || !user) return;
-    const isCreator = (currentRoute as any).creator?.id === user.id;
-    if (!isCreator) return;
-    Alert.alert(
-      "Delete route",
-      "This will permanently delete the route, all ascents, comments, and likes. This cannot be undone.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              const txs: any[] = [];
-              for (const a of currentRoute.ascents ?? []) txs.push(db.tx.ascents[a.id].delete());
-              for (const c of currentRoute.comments ?? []) txs.push(db.tx.comments[c.id].delete());
-              for (const l of currentRoute.likes ?? []) txs.push(db.tx.likes[l.id].delete());
-              txs.push(db.tx.routes[currentRoute.id].delete());
-              await db.transact(txs);
-              router.back();
-            } catch (e: any) {
-              Alert.alert("Error", e.message ?? "Failed to delete route.");
-            }
-          },
-        },
-      ]
-    );
-  }
-
   async function toggleLike() {
     if (!user || !displayedId) return;
-    if (isLiked && myLike) {
-      await db.transact([db.tx.likes[myLike.id].delete()]);
-    } else {
-      await db.transact([
-        db.tx.likes[id()]
-          .update({ createdAt: Date.now() })
-          .link({ route: displayedId, user: user.id }),
-      ]);
+    try {
+      if (isLiked && myLike) {
+        await db.transact([db.tx.likes[myLike.id].delete()]);
+      } else {
+        await db.transact([
+          db.tx.likes[id()]
+            .update({ createdAt: Date.now() })
+            .link({ route: displayedId, user: user.id }),
+        ]);
+      }
+    } catch (e: any) {
+      Alert.alert("Error", e.message ?? "Failed to update like.");
     }
   }
 
@@ -524,21 +502,31 @@ export default function RouteDetailScreen() {
           .link({ route: displayedId, user: user.id }),
       ]);
       setCommentText("");
+    } catch (e: any) {
+      Alert.alert("Error", e.message ?? "Failed to post comment.");
     } finally {
       setSubmittingComment(false);
     }
   }
 
   async function deleteComment(commentId: string) {
-    await db.transact([db.tx.comments[commentId].delete()]);
+    try {
+      await db.transact([db.tx.comments[commentId].delete()]);
+    } catch (e: any) {
+      Alert.alert("Error", e.message ?? "Failed to delete comment.");
+    }
   }
 
   async function togglePlaylist(pl: any) {
     const inPl = (pl.routes ?? []).some((r: any) => r.id === displayedId);
-    if (inPl) {
-      await db.transact([db.tx.playlists[pl.id].unlink({ routes: displayedId })]);
-    } else {
-      await db.transact([db.tx.playlists[pl.id].link({ routes: displayedId })]);
+    try {
+      if (inPl) {
+        await db.transact([db.tx.playlists[pl.id].unlink({ routes: displayedId })]);
+      } else {
+        await db.transact([db.tx.playlists[pl.id].link({ routes: displayedId })]);
+      }
+    } catch (e: any) {
+      Alert.alert("Error", e.message ?? "Failed to update playlist.");
     }
   }
 
@@ -677,6 +665,7 @@ export default function RouteDetailScreen() {
           {/* ⓘ Info */}
           <TouchableOpacity
             onPress={() => setShowInfo(true)}
+            accessibilityLabel="Route info"
             style={[
               styles.pill,
               { position: "absolute", top: insets.top + 8, right: 16 },
@@ -688,6 +677,7 @@ export default function RouteDetailScreen() {
           {/* Eye toggle — show/hide hold transparency */}
           <TouchableOpacity
             onPress={() => setHoldsTransparent((v) => !v)}
+            accessibilityLabel={holdsTransparent ? "Show holds" : "Hide holds"}
             style={[
               styles.pill,
               { position: "absolute", top: insets.top + 52, right: 16 },
@@ -785,6 +775,18 @@ export default function RouteDetailScreen() {
             onPress={() => setShowInfo(false)}
           />
           <View style={[styles.sheet, { backgroundColor: isDark ? "#1f2937" : "#fff" }]}>
+            {/* Colour extender: fills the keyboard rounded-corner gap */}
+            <View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                top: "100%",
+                left: 0,
+                right: 0,
+                height: 500,
+                backgroundColor: isDark ? "#1f2937" : "#fff",
+              }}
+            />
             {/* Draggable handle — pan down to dismiss */}
             <GestureDetector
               gesture={Gesture.Pan()
@@ -837,6 +839,7 @@ export default function RouteDetailScreen() {
 
               <TouchableOpacity
                 onPress={toggleLike}
+                accessibilityLabel={isLiked ? "Unlike route" : "Like route"}
                 style={[styles.infoRow, { marginBottom: 10, backgroundColor: isDark ? "#111827" : "#f9fafb" }]}
               >
                 <Ionicons
@@ -859,7 +862,7 @@ export default function RouteDetailScreen() {
                   setShowInfo(false);
                   setShowPlaylistModal(true);
                 }}
-                style={[styles.infoRow, { backgroundColor: isDark ? "#111827" : "#f9fafb" }]}
+                style={[styles.infoRow, { marginBottom: 10, backgroundColor: isDark ? "#111827" : "#f9fafb" }]}
               >
                 <Ionicons name="bookmark-outline" size={20} color="#6b7280" />
                 <Text style={[styles.infoRowText, { color: "#6b7280" }]}>
@@ -874,14 +877,41 @@ export default function RouteDetailScreen() {
                       setShowInfo(false);
                       router.push({ pathname: "/edit-route", params: { routeId: currentRoute.id } });
                     }}
-                    style={[styles.infoRow, { backgroundColor: isDark ? "#111827" : "#f9fafb" }]}
+                    style={[styles.infoRow, { marginBottom: 10, backgroundColor: isDark ? "#111827" : "#f9fafb" }]}
                   >
                     <Ionicons name="pencil-outline" size={20} color="#6366f1" />
                     <Text style={[styles.infoRowText, { color: "#6366f1" }]}>Edit holds</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    onPress={() => { setShowInfo(false); deleteRoute(); }}
-                    style={[styles.infoRow, { marginBottom: 20, backgroundColor: isDark ? "#111827" : "#f9fafb" }]}
+                    onPress={() => {
+                      Alert.alert(
+                        "Delete route",
+                        "This will permanently delete the route, all ascents, comments, and likes. This cannot be undone.",
+                        [
+                          { text: "Cancel", style: "cancel" },
+                          {
+                            text: "Delete",
+                            style: "destructive",
+                            onPress: async () => {
+                              setShowInfo(false);
+                              try {
+                                const txs: any[] = [];
+                                for (const a of currentRoute.ascents ?? []) txs.push(db.tx.ascents[a.id].delete());
+                                for (const c of currentRoute.comments ?? []) txs.push(db.tx.comments[c.id].delete());
+                                for (const l of currentRoute.likes ?? []) txs.push(db.tx.likes[l.id].delete());
+                                for (const pl of (currentRoute as any).playlists ?? []) txs.push(db.tx.playlists[pl.id].unlink({ routes: currentRoute.id }));
+                                txs.push(db.tx.routes[currentRoute.id].delete());
+                                await db.transact(txs);
+                                router.back();
+                              } catch (e: any) {
+                                Alert.alert("Error", e.message ?? "Failed to delete route.");
+                              }
+                            },
+                          },
+                        ]
+                      );
+                    }}
+                    style={[styles.infoRow, { marginBottom: 10, backgroundColor: isDark ? "#111827" : "#f9fafb" }]}
                   >
                     <Ionicons name="trash-outline" size={20} color="#ef4444" />
                     <Text style={[styles.infoRowText, { color: "#ef4444" }]}>Delete route</Text>
@@ -956,6 +986,7 @@ export default function RouteDetailScreen() {
                   {c.user?.id === user?.id && (
                     <TouchableOpacity
                       onPress={() => deleteComment(c.id)}
+                      accessibilityLabel="Delete comment"
                       style={{ padding: 4, marginLeft: 4 }}
                     >
                       <Ionicons name="close" size={14} color={isDark ? "#4b5563" : "#d1d5db"} />
@@ -978,6 +1009,7 @@ export default function RouteDetailScreen() {
                   placeholderTextColor="#9ca3af"
                   value={commentText}
                   onChangeText={setCommentText}
+                  maxLength={1000}
                   returnKeyType="send"
                   onSubmitEditing={submitComment}
                 />

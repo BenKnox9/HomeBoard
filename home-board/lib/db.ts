@@ -1,7 +1,7 @@
 import { init } from "@instantdb/react-native";
 import schema from "../instant.schema";
 
-export const db = init({
-  appId: process.env.EXPO_PUBLIC_INSTANT_APP_ID!,
-  schema,
-});
+const appId = process.env.EXPO_PUBLIC_INSTANT_APP_ID;
+if (!appId) throw new Error("EXPO_PUBLIC_INSTANT_APP_ID is not set — add it to .env");
+
+export const db = init({ appId, schema });

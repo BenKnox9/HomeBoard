@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { GRADES } from "@/lib/grades";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -75,19 +75,23 @@ export default function EditRouteScreen() {
     transform: [{ translateY: formY.value - keyboardOffset.value }],
   }));
 
-  const handleDragGesture = Gesture.Pan()
-    .runOnJS(true)
-    .activeOffsetY([0, 8])
-    .onUpdate((e) => { formY.value = Math.max(0, e.translationY); })
-    .onEnd((e) => {
-      if (e.translationY > 100 || e.velocityY > 600) {
-        formY.value = withTiming(FORM_HEIGHT, { duration: 250, easing: Easing.in(Easing.cubic) });
-        Keyboard.dismiss();
-        setFormOpen(false);
-      } else {
-        formY.value = withTiming(0, { duration: 200, easing: Easing.out(Easing.cubic) });
-      }
-    });
+  const handleDragGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .runOnJS(true)
+        .activeOffsetY([0, 8])
+        .onUpdate((e) => { formY.value = Math.max(0, e.translationY); })
+        .onEnd((e) => {
+          if (e.translationY > 100 || e.velocityY > 600) {
+            formY.value = withTiming(FORM_HEIGHT, { duration: 250, easing: Easing.in(Easing.cubic) });
+            Keyboard.dismiss();
+            setFormOpen(false);
+          } else {
+            formY.value = withTiming(0, { duration: 200, easing: Easing.out(Easing.cubic) });
+          }
+        }),
+    []
+  );
 
   function openForm() {
     setFormOpen(true);
@@ -295,6 +299,7 @@ export default function EditRouteScreen() {
             placeholderTextColor="#9ca3af"
             value={name}
             onChangeText={setName}
+            maxLength={100}
             returnKeyType="next"
             inputAccessoryViewID={INPUT_ACCESSORY_ID}
           />
@@ -306,6 +311,7 @@ export default function EditRouteScreen() {
             placeholderTextColor="#9ca3af"
             value={description}
             onChangeText={setDescription}
+            maxLength={500}
             multiline
             numberOfLines={3}
             inputAccessoryViewID={INPUT_ACCESSORY_ID}

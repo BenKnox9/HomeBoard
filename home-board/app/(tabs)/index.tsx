@@ -191,7 +191,10 @@ export default function RoutesScreen() {
             inputAccessoryViewID={SEARCH_ACCESSORY_ID}
           />
           {searchQuery.length > 0 && (
-            <TouchableOpacity onPress={() => setSearchQuery("")}>
+            <TouchableOpacity
+              onPress={() => setSearchQuery("")}
+              accessibilityLabel="Clear search"
+            >
               <Ionicons name="close-circle" size={16} color="#9ca3af" />
             </TouchableOpacity>
           )}
@@ -305,6 +308,7 @@ export default function RoutesScreen() {
       {/* Floating + button */}
       <TouchableOpacity
         onPress={() => router.push("/create-route")}
+        accessibilityLabel="Add route"
         className="absolute bottom-8 right-6 bg-indigo-600 rounded-full items-center justify-center"
         style={{
           width: 56,

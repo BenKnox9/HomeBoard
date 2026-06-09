@@ -24,14 +24,15 @@ export async function prepareImage(asset: ImageAsset): Promise<{ uri: string; mi
   const h = asset.height ?? 0;
   const needsResize = (w > MAX_DIMENSION || h > MAX_DIMENSION) && w > 0 && h > 0;
 
-  if (!needsResize) {
-    return { uri: asset.uri, mimeType: asset.mimeType ?? "image/jpeg" };
-  }
+  const actions: ImageManipulator.Action[] = needsResize
+    ? [{ resize: { width: Math.round(w * Math.min(MAX_DIMENSION / w, MAX_DIMENSION / h)), height: Math.round(h * Math.min(MAX_DIMENSION / w, MAX_DIMENSION / h)) } }]
+    : [];
 
-  const ratio = Math.min(MAX_DIMENSION / w, MAX_DIMENSION / h);
+  // Always convert to JPEG — ensures HEIC and other formats are normalised
+  // and guarantees a consistent upload format regardless of source.
   const result = await ImageManipulator.manipulateAsync(
     asset.uri,
-    [{ resize: { width: Math.round(w * ratio), height: Math.round(h * ratio) } }],
+    actions,
     { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG }
   );
 

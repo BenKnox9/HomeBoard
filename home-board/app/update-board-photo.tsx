@@ -3,6 +3,7 @@ import { prepareImage } from "@/lib/imageUtils";
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Image } from "expo-image";
+import * as ImagePicker from "expo-image-picker";
 import * as Linking from "expo-linking";
 import { router, useLocalSearchParams } from "expo-router";
 import { useRef, useState } from "react";
@@ -19,37 +20,40 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 const OPACITY_STEPS = [0.5, 0.3, 0.15, 0];
 
 export default function UpdateBoardPhotoScreen() {
-  const { boardId: boardIdParam } = useLocalSearchParams<{ boardId: string }>();
+  const { boardId: boardIdParam, isNew: isNewParam } = useLocalSearchParams<{ boardId: string; isNew: string }>();
   const boardId = Array.isArray(boardIdParam) ? boardIdParam[0] : boardIdParam;
+  const isNew = isNewParam === "true";
   const insets = useSafeAreaInsets();
 
   const [permission, requestPermission] = useCameraPermissions();
   const [uploading, setUploading] = useState(false);
   const [opacityStep, setOpacityStep] = useState(0);
   const [capturedUri, setCapturedUri] = useState<string | null>(null);
+  const [capturedDimensions, setCapturedDimensions] = useState<{ width?: number; height?: number }>({});
   const [uploadError, setUploadError] = useState<string | null>(null);
   const cameraRef = useRef<CameraView>(null);
 
   const { data } = db.useQuery(
     boardId
-      ? { boards: { $: { where: { id: boardId } }, photo: {} } }
+      ? { boards: { $: { where: { id: boardId } }, photo: {}, routes: {} } }
       : null
   );
   const board = (data?.boards?.[0] as any);
   const ghostUrl = board?.photo?.url as string | undefined;
   const oldPhotoId = board?.photo?.id as string | undefined;
+  const hasRoutes = ((board?.routes ?? []) as any[]).length > 0;
   const ghostOpacity = OPACITY_STEPS[opacityStep];
 
   function cycleOpacity() {
     setOpacityStep((s) => (s + 1) % OPACITY_STEPS.length);
   }
 
-  async function doUpload(photoUri: string) {
+  async function doUpload(photoUri: string, width?: number, height?: number) {
     if (!boardId) return;
     setUploading(true);
     setUploadError(null);
     try {
-      const prepared = await prepareImage({ uri: photoUri });
+      const prepared = await prepareImage({ uri: photoUri, width, height });
       const filename = `board_${Date.now()}.jpg`;
       const result = await db.storage.uploadFile(
         `boards/${boardId}/${filename}`,
@@ -65,7 +69,11 @@ export default function UpdateBoardPhotoScreen() {
       }
       await db.transact(txs);
 
-      router.replace({ pathname: "/verify-routes", params: { boardId } });
+      if (hasRoutes) {
+        router.replace({ pathname: "/verify-routes", params: { boardId } });
+      } else {
+        router.replace("/(tabs)");
+      }
     } catch (e: any) {
       setUploadError(e.message ?? "Upload failed. Please try again.");
     } finally {
@@ -78,7 +86,8 @@ export default function UpdateBoardPhotoScreen() {
     try {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.85 });
       setCapturedUri(photo.uri);
-      await doUpload(photo.uri);
+      setCapturedDimensions({ width: photo.width, height: photo.height });
+      await doUpload(photo.uri, photo.width, photo.height);
     } catch (e: any) {
       Alert.alert("Error", e.message ?? "Failed to capture photo.");
     }
@@ -86,7 +95,26 @@ export default function UpdateBoardPhotoScreen() {
 
   async function retry() {
     if (!capturedUri) return;
-    await doUpload(capturedUri);
+    await doUpload(capturedUri, capturedDimensions.width, capturedDimensions.height);
+  }
+
+  async function pickFromLibrary() {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      quality: 0.8,
+    });
+    if (!result.canceled && result.assets[0]) {
+      const asset = result.assets[0];
+      await doUpload(asset.uri, asset.width, asset.height);
+    }
+  }
+
+  async function handleBack() {
+    if (isNew && boardId) {
+      await db.transact([db.tx.boards[boardId].delete()]);
+    }
+    router.back();
   }
 
   // ── Permission states ─────────────────────────────────────────────────────
@@ -102,7 +130,7 @@ export default function UpdateBoardPhotoScreen() {
         <Ionicons name="camera-outline" size={56} color="#6366f1" style={{ marginBottom: 20 }} />
         <Text style={styles.permTitle}>Camera access needed</Text>
         <Text style={styles.permBody}>
-          HomeBoard uses your camera to capture a new board photo with the previous photo as a ghost overlay for easy alignment.
+          BackyardBoard uses your camera to capture a new board photo with the previous photo as a ghost overlay for easy alignment.
         </Text>
         <TouchableOpacity
           onPress={canAsk ? requestPermission : () => Linking.openSettings()}
@@ -147,23 +175,27 @@ export default function UpdateBoardPhotoScreen() {
 
       {/* Top bar */}
       <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
-        <View style={styles.pill}>
-          <Text style={[styles.pillText, { fontWeight: "700" }]}>Update board</Text>
-        </View>
-
-        <View style={styles.pill}>
-          <Ionicons name="information-circle-outline" size={14} color="rgba(255,255,255,0.7)" />
-          <Text style={styles.pillText}>Align board edges to ghost</Text>
-        </View>
-
-        <TouchableOpacity onPress={cycleOpacity} style={styles.pill}>
-          <Ionicons
-            name={ghostOpacity === 0 ? "eye-off-outline" : "eye-outline"}
-            size={16}
-            color="#fff"
-          />
-          <Text style={styles.pillText}>{opacityLabel}</Text>
+        <TouchableOpacity onPress={handleBack} accessibilityLabel="Go back" style={styles.pill} disabled={uploading}>
+          <Ionicons name="arrow-back" size={16} color="#fff" />
         </TouchableOpacity>
+
+        {ghostUrl && (
+          <View style={styles.pill}>
+            <Ionicons name="information-circle-outline" size={14} color="rgba(255,255,255,0.7)" />
+            <Text style={styles.pillText}>Align board edges to ghost</Text>
+          </View>
+        )}
+
+        {ghostUrl && (
+          <TouchableOpacity onPress={cycleOpacity} style={styles.pill}>
+            <Ionicons
+              name={ghostOpacity === 0 ? "eye-off-outline" : "eye-outline"}
+              size={16}
+              color="#fff"
+            />
+            <Text style={styles.pillText}>{opacityLabel}</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Bottom bar */}
@@ -179,16 +211,30 @@ export default function UpdateBoardPhotoScreen() {
         ) : (
           <>
             <Text style={styles.hint}>
-              Frame the board to match the ghost, then tap to capture
+              {ghostUrl
+                ? "Frame the board to match the ghost, then tap to capture"
+                : "Take a photo of your board or choose one from your library"}
             </Text>
-            <TouchableOpacity
-              onPress={capture}
-              disabled={uploading}
-              style={[styles.captureBtn, uploading && { opacity: 0.6 }]}
-              activeOpacity={0.75}
-            >
-              <View style={styles.captureBtnInner} />
-            </TouchableOpacity>
+            <View style={styles.captureRow}>
+              <TouchableOpacity
+                onPress={pickFromLibrary}
+                disabled={uploading}
+                accessibilityLabel="Choose from library"
+                style={[styles.libraryBtn, uploading && { opacity: 0.4 }]}
+                activeOpacity={0.75}
+              >
+                <Ionicons name="image-outline" size={28} color="#fff" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={capture}
+                disabled={uploading}
+                accessibilityLabel="Capture photo"
+                style={[styles.captureBtn, uploading && { opacity: 0.6 }]}
+                activeOpacity={0.75}
+              >
+                <View style={styles.captureBtnInner} />
+              </TouchableOpacity>
+            </View>
           </>
         )}
       </View>
@@ -278,4 +324,21 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   retryBtnText: { color: "#6366f1", fontWeight: "700", fontSize: 16 },
+
+  captureRow: {
+    alignItems: "center",
+    justifyContent: "center",
+    width: "100%",
+  },
+  libraryBtn: {
+    position: "absolute",
+    left: 60,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  captureRowSpacer: { flex: 1 },
 });

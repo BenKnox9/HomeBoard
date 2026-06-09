@@ -75,7 +75,7 @@ export default function LoginScreen() {
     >
       <View className="flex-1 items-center justify-center px-8">
         <View className="w-full max-w-sm bg-white dark:bg-gray-800 rounded-3xl shadow-lg p-8">
-          <Text className="text-3xl font-bold text-indigo-600 mb-1">HomeBoard</Text>
+          <Text className="text-3xl font-bold text-indigo-600 mb-1">BackyardBoard</Text>
           <Text className="text-gray-400 dark:text-gray-500 mb-8 text-sm">Sign in to your account</Text>
 
           {!sentEmail ? (

@@ -4,7 +4,7 @@ import { GRADES } from "@/lib/grades";
 import { id } from "@instantdb/react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -82,21 +82,25 @@ export default function CreateRouteScreen() {
   // .runOnJS(true) keeps all callbacks on the JS thread so we can call
   // setFormOpen/Keyboard.dismiss directly; withTiming still drives the
   // animation on the UI thread regardless of where it is called from.
-  const handleDragGesture = Gesture.Pan()
-    .runOnJS(true)
-    .activeOffsetY([0, 8])
-    .onUpdate((e) => {
-      formY.value = Math.max(0, e.translationY);
-    })
-    .onEnd((e) => {
-      if (e.translationY > 100 || e.velocityY > 600) {
-        formY.value = withTiming(FORM_HEIGHT, { duration: 250, easing: Easing.in(Easing.cubic) });
-        Keyboard.dismiss();
-        setFormOpen(false);
-      } else {
-        formY.value = withTiming(0, { duration: 200, easing: Easing.out(Easing.cubic) });
-      }
-    });
+  const handleDragGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .runOnJS(true)
+        .activeOffsetY([0, 8])
+        .onUpdate((e) => {
+          formY.value = Math.max(0, e.translationY);
+        })
+        .onEnd((e) => {
+          if (e.translationY > 100 || e.velocityY > 600) {
+            formY.value = withTiming(FORM_HEIGHT, { duration: 250, easing: Easing.in(Easing.cubic) });
+            Keyboard.dismiss();
+            setFormOpen(false);
+          } else {
+            formY.value = withTiming(0, { duration: 200, easing: Easing.out(Easing.cubic) });
+          }
+        }),
+    []
+  );
 
   function openForm() {
     setFormOpen(true);
@@ -234,6 +238,7 @@ export default function CreateRouteScreen() {
         </View>
         <TouchableOpacity
           onPress={() => setShowLegend(true)}
+          accessibilityLabel="Hold colour legend"
           style={[styles.holdCountBadge, { paddingHorizontal: 8 }]}
         >
           <Text style={styles.holdCountText}>?</Text>
@@ -253,6 +258,7 @@ export default function CreateRouteScreen() {
           <TouchableOpacity
             key={color}
             onPress={() => setActiveColor(color)}
+            accessibilityLabel={`${color} hold colour`}
             style={[
               styles.colorDot,
               {
@@ -276,6 +282,7 @@ export default function CreateRouteScreen() {
               <TouchableOpacity
                 key={s}
                 onPress={() => setActiveSize(s)}
+                accessibilityLabel={`${s} hold size`}
                 style={styles.sizePickerBtn}
               >
                 <View
@@ -414,6 +421,7 @@ export default function CreateRouteScreen() {
             placeholderTextColor="#9ca3af"
             value={name}
             onChangeText={setName}
+            maxLength={100}
             returnKeyType="next"
             inputAccessoryViewID={INPUT_ACCESSORY_ID}
           />
@@ -426,6 +434,7 @@ export default function CreateRouteScreen() {
             placeholderTextColor="#9ca3af"
             value={description}
             onChangeText={setDescription}
+            maxLength={500}
             multiline
             numberOfLines={3}
             inputAccessoryViewID={INPUT_ACCESSORY_ID}

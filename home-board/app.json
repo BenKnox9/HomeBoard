@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "expotemplate",
+    "scheme": "backyardboard",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
@@ -22,8 +22,7 @@
       },
       "edgeToEdgeEnabled": true,
       "permissions": [
-        "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.CAMERA"
       ]
     },
     "web": {
@@ -36,13 +35,13 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow HomeBoard to access your camera to photograph your board."
+          "cameraPermission": "Allow BackyardBoard to access your camera to photograph your board."
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow HomeBoard to access your photos to add a board photo."
+          "photosPermission": "Allow BackyardBoard to access your photos to add a board photo."
         }
       ],
       [
@@ -53,7 +52,8 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
-      ]
+      ],
+      "expo-font"
     ],
     "experiments": {
       "typedRoutes": true

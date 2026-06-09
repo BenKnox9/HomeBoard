@@ -12,7 +12,10 @@
       "distribution": "internal"
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_INSTANT_APP_ID": "84954b19-a3ae-439c-86c8-2ecacbfb592f"
+      }
     }
   },
   "submit": {

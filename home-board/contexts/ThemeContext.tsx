@@ -15,7 +15,7 @@ const ThemeContext = createContext<ThemeContextValue>({
 });
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [isDark, setIsDark] = useState(false);
+  const [isDark, setIsDark] = useState(() => Appearance.getColorScheme() === "dark");
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY).then((value) => {

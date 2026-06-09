@@ -1,10 +1,8 @@
 import { db } from "@/lib/db";
 import { GRADES, gradeBadgeColor } from "@/lib/grades";
-import { ImageValidationError, prepareImage } from "@/lib/imageUtils";
 import { useTheme } from "@/contexts/ThemeContext";
 import { id } from "@instantdb/react-native";
 import { Ionicons } from "@expo/vector-icons";
-import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import { useMemo, useState } from "react";
 import {
@@ -192,13 +190,13 @@ export default function ProfileScreen() {
   const [usernameInput, setUsernameInput] = useState("");
   const [pickerCountry, setPickerCountry] = useState<string | null>(null);
 
-  const currentUser = data?.$users?.[0];
+const currentUser = data?.$users?.[0];
   const selectedBoard = currentUser?.selectedBoard;
   const ascents = currentUser?.ascents ?? [];
   const allBoards = data?.boards ?? [];
   const currentUsername = (currentUser as any)?.username as string | undefined;
 
-  const { uniqueDays, sessions, climbsPerSession } = useMemo(() => {
+  const { uniqueDays, climbsPerSession } = useMemo(() => {
     const SESSION_GAP_MS = 60 * 60 * 1000;
     const ud = new Set(
       ascents.map((a: any) => new Date(a.loggedAt).toDateString())
@@ -260,14 +258,8 @@ export default function ProfileScreen() {
   }
 
   async function addBoard() {
-    if (!user || !newBoardName.trim()) return;
+    if (!user || !newBoardName.trim() || !newBoardCountry) return;
 
-    if (!newBoardCountry) {
-      Alert.alert("Country required", "Please select a country for this board.");
-      return;
-    }
-
-    // Client-side uniqueness check for board name
     const nameExists = (allBoards as any[]).some(
       (b: any) => b.name.toLowerCase() === newBoardName.trim().toLowerCase()
     );
@@ -279,32 +271,7 @@ export default function ProfileScreen() {
     setSaving(true);
     try {
       const boardId = id();
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ["images"],
-        allowsEditing: true,
-        quality: 0.8,
-      });
-
-      let fileId: string | undefined;
-      if (!result.canceled && result.assets[0]) {
-        const asset = result.assets[0];
-        const prepared = await prepareImage({
-          uri: asset.uri,
-          width: asset.width ?? undefined,
-          height: asset.height ?? undefined,
-          fileSize: asset.fileSize ?? undefined,
-          mimeType: asset.mimeType ?? undefined,
-        });
-        const filename = `photo_${Date.now()}.jpg`;
-        const uploadResult = await db.storage.uploadFile(
-          `boards/${boardId}/${filename}`,
-          { uri: prepared.uri, name: filename, type: prepared.mimeType } as any
-        );
-        fileId = uploadResult.data?.id;
-      }
-
-      const txs: any[] = [
+      await db.transact([
         db.tx.boards[boardId]
           .update({
             name: newBoardName.trim(),
@@ -313,14 +280,6 @@ export default function ProfileScreen() {
             createdAt: Date.now(),
           })
           .link({ creator: user.id }),
-      ];
-
-      if (fileId) {
-        txs[0] = txs[0].link({ photo: fileId });
-      }
-
-      await db.transact(txs);
-      await db.transact([
         db.tx.$users[user.id].link({ selectedBoard: boardId }),
       ]);
 
@@ -328,12 +287,9 @@ export default function ProfileScreen() {
       setNewBoardDesc("");
       setNewBoardCountry("");
       setShowAddBoard(false);
+      router.push({ pathname: "/update-board-photo", params: { boardId, isNew: "true" } });
     } catch (e: any) {
-      if (e instanceof ImageValidationError) {
-        Alert.alert("Photo too large", e.message);
-      } else {
-        Alert.alert("Error", e.message ?? "Failed to create board.");
-      }
+      Alert.alert("Error", e.message ?? "Failed to create board.");
     } finally {
       setSaving(false);
     }
@@ -342,13 +298,17 @@ export default function ProfileScreen() {
   async function addPlaylist() {
     if (!user || !selectedBoard || !newPlaylistName.trim()) return;
     const plId = id();
-    await db.transact([
-      db.tx.playlists[plId]
-        .update({ name: newPlaylistName.trim(), createdAt: Date.now() })
-        .link({ creator: user.id, board: selectedBoard.id }),
-    ]);
-    setNewPlaylistName("");
-    setShowAddPlaylist(false);
+    try {
+      await db.transact([
+        db.tx.playlists[plId]
+          .update({ name: newPlaylistName.trim(), createdAt: Date.now() })
+          .link({ creator: user.id, board: selectedBoard.id }),
+      ]);
+      setNewPlaylistName("");
+      setShowAddPlaylist(false);
+    } catch (e: any) {
+      Alert.alert("Error", e.message ?? "Failed to create playlist.");
+    }
   }
 
   function deletePlaylist(plId: string) {
@@ -360,8 +320,12 @@ export default function ProfileScreen() {
         {
           text: "Delete",
           style: "destructive",
-          onPress: () => {
-            db.transact([db.tx.playlists[plId].delete()]);
+          onPress: async () => {
+            try {
+              await db.transact([db.tx.playlists[plId].delete()]);
+            } catch (e: any) {
+              Alert.alert("Error", e.message ?? "Failed to delete playlist.");
+            }
           },
         },
       ]
@@ -399,6 +363,7 @@ export default function ProfileScreen() {
               placeholderTextColor="#9ca3af"
               value={usernameInput}
               onChangeText={setUsernameInput}
+              maxLength={30}
               autoFocus
               autoCapitalize="none"
               autoCorrect={false}
@@ -510,6 +475,7 @@ export default function ProfileScreen() {
                 placeholderTextColor="#9ca3af"
                 value={newPlaylistName}
                 onChangeText={setNewPlaylistName}
+                maxLength={100}
                 autoFocus
                 returnKeyType="done"
                 onSubmitEditing={addPlaylist}
@@ -778,121 +744,154 @@ export default function ProfileScreen() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Country Picker Modal */}
-      <Modal
-        visible={showCountryPicker}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowCountryPicker(false)}
-      >
-        <TouchableOpacity
-          className="flex-1 bg-black/40 justify-end"
-          activeOpacity={1}
-          onPress={() => setShowCountryPicker(false)}
-        >
-          <View style={{ backgroundColor: isDark ? "#1f2937" : "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: "70%", paddingTop: 20, paddingHorizontal: 24, paddingBottom: 24 }}>
-            <Text style={{ fontSize: 16, fontWeight: "700", color: isDark ? "#f3f4f6" : "#111827", marginBottom: 12 }}>Select country</Text>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {COUNTRIES.map((c) => (
-                <TouchableOpacity
-                  key={c}
-                  onPress={() => { setNewBoardCountry(c); setShowCountryPicker(false); }}
-                  style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: isDark ? "#374151" : "#f3f4f6", flexDirection: "row", alignItems: "center" }}
-                >
-                  <Text style={{ flex: 1, color: isDark ? "#e5e7eb" : "#1f2937", fontSize: 15 }}>{c}</Text>
-                  {newBoardCountry === c && <Ionicons name="checkmark" size={18} color="#6366f1" />}
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        </TouchableOpacity>
-      </Modal>
-
       {/* Add Board Modal */}
       <Modal
         visible={showAddBoard}
         transparent
         animationType="slide"
-        onRequestClose={() => setShowAddBoard(false)}
+        onRequestClose={() => {
+          if (showCountryPicker) {
+            setShowCountryPicker(false);
+          } else {
+            setShowAddBoard(false);
+          }
+        }}
       >
+        {/* Backdrop */}
+        <TouchableOpacity
+          style={{ ...StyleSheet.absoluteFillObject }}
+          activeOpacity={1}
+          onPress={() => {
+            if (showCountryPicker) {
+              setShowCountryPicker(false);
+            } else {
+              setShowAddBoard(false);
+            }
+          }}
+        />
+        {/* Form — KAV pushes content above keyboard; extender fills below */}
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : "height"}
-          style={{ flex: 1, justifyContent: "flex-end" }}
+          style={{ flex: 1, justifyContent: "flex-end", pointerEvents: "box-none" }}
         >
-          <TouchableOpacity
-            style={{ ...StyleSheet.absoluteFillObject }}
-            activeOpacity={1}
-            onPress={() => setShowAddBoard(false)}
-          />
-          <View className="bg-white dark:bg-gray-800 rounded-t-3xl p-6">
-            <Text className="text-lg font-bold text-gray-800 dark:text-gray-100 mb-4">
-              Add a board
-            </Text>
-            <Text className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase mb-1">
-              Country
-            </Text>
-            <TouchableOpacity
-              onPress={() => setShowCountryPicker(true)}
-              className="border border-gray-200 dark:border-gray-600 rounded-xl px-4 py-3 bg-gray-50 dark:bg-gray-700 mb-3 flex-row items-center justify-between"
-            >
-              <Text style={{ color: newBoardCountry ? (isDark ? "#e5e7eb" : "#1f2937") : "#9ca3af", fontSize: 14 }}>
-                {newBoardCountry || "Select a country"}
-              </Text>
-              <Ionicons name="chevron-down" size={16} color="#9ca3af" />
-            </TouchableOpacity>
-            <Text className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase mb-1">
-              Name
-            </Text>
-            <TextInput
-              className="border border-gray-200 dark:border-gray-600 rounded-xl px-4 py-3 text-sm text-gray-800 dark:text-gray-100 bg-gray-50 dark:bg-gray-700 mb-3"
-              placeholder="e.g. Garage wall"
-              placeholderTextColor="#9ca3af"
-              value={newBoardName}
-              onChangeText={setNewBoardName}
-              returnKeyType="next"
-              inputAccessoryViewID={PROFILE_ACCESSORY_ID}
-            />
-            <Text className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase mb-1">
-              Description (optional)
-            </Text>
-            <TextInput
-              className="border border-gray-200 dark:border-gray-600 rounded-xl px-4 py-3 text-sm text-gray-800 dark:text-gray-100 bg-gray-50 dark:bg-gray-700 mb-4"
-              placeholder="A short description of your board"
-              placeholderTextColor="#9ca3af"
-              value={newBoardDesc}
-              onChangeText={setNewBoardDesc}
-              multiline
-              inputAccessoryViewID={PROFILE_ACCESSORY_ID}
-            />
-            <Text className="text-gray-400 dark:text-gray-500 text-xs text-center mb-4">
-              You'll be prompted to choose a photo of your board.
-            </Text>
-            <View className="flex-row gap-x-2">
-              <TouchableOpacity
-                onPress={() => {
-                  setShowAddBoard(false);
-                  setNewBoardName("");
-                  setNewBoardDesc("");
-                  setNewBoardCountry("");
-                }}
-                className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-xl py-3 items-center"
-              >
-                <Text className="text-gray-600 dark:text-gray-300 font-medium">Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={addBoard}
-                disabled={saving || !newBoardName.trim() || !newBoardCountry}
-                className="flex-1 bg-indigo-600 rounded-xl py-3 items-center"
-                style={{ opacity: saving || !newBoardName.trim() || !newBoardCountry ? 0.5 : 1 }}
-              >
-                {saving ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text className="text-white font-semibold">Create</Text>
-                )}
-              </TouchableOpacity>
-            </View>
+        <View
+          style={{
+            backgroundColor: isDark ? "#1f2937" : "#ffffff",
+            borderTopLeftRadius: 24,
+            borderTopRightRadius: 24,
+            borderTopWidth: 1,
+            borderLeftWidth: 1,
+            borderRightWidth: 1,
+            borderColor: isDark ? "#374151" : "#e5e7eb",
+          }}
+        >
+          {/* Drag handle */}
+          <View style={{ alignItems: "center", paddingTop: 12, paddingBottom: 4 }}>
+            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: isDark ? "#4b5563" : "#d1d5db" }} />
           </View>
+          {/* Colour extender anchored to the bottom of the form panel.
+              Travels with the form when KAV lifts it, filling the keyboard
+              corner gap without appearing above the form when keyboard is hidden. */}
+          <View
+            pointerEvents="none"
+            style={{
+              position: "absolute",
+              top: "100%",
+              left: -1,
+              right: -1,
+              height: 500,
+              backgroundColor: isDark ? "#1f2937" : "#ffffff",
+              borderLeftWidth: 1,
+              borderRightWidth: 1,
+              borderColor: isDark ? "#374151" : "#e5e7eb",
+            }}
+          />
+          {showCountryPicker ? (
+            <View style={{ maxHeight: 480, paddingTop: 20, paddingHorizontal: 24, paddingBottom: 24 }}>
+              <Text style={{ fontSize: 16, fontWeight: "700", color: isDark ? "#f3f4f6" : "#111827", marginBottom: 12 }}>Select country</Text>
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {COUNTRIES.map((c) => (
+                  <TouchableOpacity
+                    key={c}
+                    onPress={() => { setNewBoardCountry(c); setShowCountryPicker(false); }}
+                    style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: isDark ? "#374151" : "#f3f4f6", flexDirection: "row", alignItems: "center" }}
+                  >
+                    <Text style={{ flex: 1, color: isDark ? "#e5e7eb" : "#1f2937", fontSize: 15 }}>{c}</Text>
+                    {newBoardCountry === c && <Ionicons name="checkmark" size={18} color="#6366f1" />}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          ) : (
+            <View style={{ paddingTop: 24, paddingHorizontal: 24, paddingBottom: 32 }}>
+              <Text style={{ fontSize: 18, fontWeight: "700", color: isDark ? "#f3f4f6" : "#111827", marginBottom: 16 }}>
+                Add a board
+              </Text>
+              <Text style={{ fontSize: 11, fontWeight: "600", color: "#9ca3af", textTransform: "uppercase", marginBottom: 4 }}>
+                Country
+              </Text>
+              <TouchableOpacity
+                onPress={() => setShowCountryPicker(true)}
+                style={{ borderWidth: 1, borderColor: isDark ? "#4b5563" : "#e5e7eb", borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, backgroundColor: isDark ? "#374151" : "#f9fafb", marginBottom: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}
+              >
+                <Text style={{ color: newBoardCountry ? (isDark ? "#e5e7eb" : "#1f2937") : "#9ca3af", fontSize: 14 }}>
+                  {newBoardCountry || "Select a country"}
+                </Text>
+                <Ionicons name="chevron-down" size={16} color="#9ca3af" />
+              </TouchableOpacity>
+              <Text style={{ fontSize: 11, fontWeight: "600", color: "#9ca3af", textTransform: "uppercase", marginBottom: 4 }}>
+                Name
+              </Text>
+              <TextInput
+                style={{ borderWidth: 1, borderColor: isDark ? "#4b5563" : "#e5e7eb", borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, fontSize: 14, color: isDark ? "#f3f4f6" : "#111827", backgroundColor: isDark ? "#374151" : "#f9fafb", marginBottom: 12 }}
+                placeholder="e.g. Garage wall"
+                placeholderTextColor="#9ca3af"
+                value={newBoardName}
+                onChangeText={setNewBoardName}
+                maxLength={100}
+                returnKeyType="next"
+                inputAccessoryViewID={PROFILE_ACCESSORY_ID}
+              />
+              <Text style={{ fontSize: 11, fontWeight: "600", color: "#9ca3af", textTransform: "uppercase", marginBottom: 4 }}>
+                Description (optional)
+              </Text>
+              <TextInput
+                style={{ borderWidth: 1, borderColor: isDark ? "#4b5563" : "#e5e7eb", borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, fontSize: 14, color: isDark ? "#f3f4f6" : "#111827", backgroundColor: isDark ? "#374151" : "#f9fafb", marginBottom: 16 }}
+                placeholder="A short description of your board"
+                placeholderTextColor="#9ca3af"
+                value={newBoardDesc}
+                onChangeText={setNewBoardDesc}
+                maxLength={500}
+                multiline
+                inputAccessoryViewID={PROFILE_ACCESSORY_ID}
+              />
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <TouchableOpacity
+                  onPress={() => {
+                    setShowAddBoard(false);
+                    setNewBoardName("");
+                    setNewBoardDesc("");
+                    setNewBoardCountry("");
+                  }}
+                  style={{ flex: 1, backgroundColor: isDark ? "#374151" : "#f3f4f6", borderRadius: 12, paddingVertical: 14, alignItems: "center" }}
+                >
+                  <Text style={{ color: isDark ? "#d1d5db" : "#4b5563", fontWeight: "500" }}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={addBoard}
+                  disabled={saving || !newBoardName.trim() || !newBoardCountry}
+                  style={{ flex: 1, backgroundColor: "#6366f1", borderRadius: 12, paddingVertical: 14, alignItems: "center", opacity: saving || !newBoardName.trim() || !newBoardCountry ? 0.5 : 1 }}
+                >
+                  {saving ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={{ color: "#fff", fontWeight: "600" }}>Create</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+        </View>
         </KeyboardAvoidingView>
       </Modal>
     </ScrollView>
