@@ -2,6 +2,7 @@ import "../global.css";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import LoginScreen from "@/components/LoginScreen";
 import OnboardingModal from "@/components/OnboardingModal";
+import UsernamePromptModal from "@/components/UsernamePromptModal";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { db } from "@/lib/db";
 import { useFonts } from "expo-font";
@@ -76,6 +77,7 @@ export default function RootLayout() {
             />
           </Stack>
           <OnboardingModal />
+          <UsernamePromptModal />
           <StatusBar style="auto" />
         </ErrorBoundary>
       </GestureHandlerRootView>

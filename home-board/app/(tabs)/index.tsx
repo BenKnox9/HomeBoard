@@ -2,7 +2,7 @@ import RouteCard from "@/components/RouteCard";
 import { db } from "@/lib/db";
 import { GRADES, gradeIndex } from "@/lib/grades";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -31,10 +31,19 @@ interface SortState {
 export default function RoutesScreen() {
   const { user } = db.useAuth();
   const isDark = useColorScheme() === "dark";
+  const { presetSearch } = useLocalSearchParams<{ presetSearch?: string }>();
   const [gradeFilters, setGradeFilters] = useState<Set<string>>(new Set());
   const [sort, setSort] = useState<SortState | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
+  useEffect(() => {
+    if (presetSearch) {
+      setSearchQuery(presetSearch);
+      setGradeFilters(new Set());
+      router.setParams({ presetSearch: undefined });
+    }
+  }, [presetSearch]);
 
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);

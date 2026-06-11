@@ -86,9 +86,26 @@ function RouteInfoBar({
           {route.name}
         </Text>
         {creatorLabel && (
-          <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 11, marginTop: 1 }}>
-            {creatorLabel}
-          </Text>
+          creator?.username ? (
+            <TouchableOpacity
+              onPress={() =>
+                router.push({
+                  pathname: "/(tabs)",
+                  params: { presetSearch: `@${creator.username}` },
+                })
+              }
+              hitSlop={{ top: 4, bottom: 4, left: 4, right: 20 }}
+              accessibilityLabel={`View routes by ${creatorLabel}`}
+            >
+              <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 11, marginTop: 1 }}>
+                {creatorLabel}
+              </Text>
+            </TouchableOpacity>
+          ) : (
+            <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 11, marginTop: 1 }}>
+              {creatorLabel}
+            </Text>
+          )
         )}
       </View>
       {hasAscended && (
@@ -603,13 +620,13 @@ export default function RouteDetailScreen() {
         </GestureDetector>
 
         {/* Route info bar — outside zoom, always rendered, opacity-gated during transition */}
-        <Animated.View style={[StyleSheet.absoluteFill, currentLayerStyle]} pointerEvents="none">
+        <Animated.View style={[StyleSheet.absoluteFill, currentLayerStyle]} pointerEvents="box-none">
           <RouteInfoBar route={currentRoute} userId={user?.id} />
         </Animated.View>
         {outgoingRouteId && (() => {
           const outRoute = data?.routes?.find((r: any) => r.id === outgoingRouteId);
           return outRoute ? (
-            <Animated.View style={[StyleSheet.absoluteFill, outgoingStyle]} pointerEvents="none">
+            <Animated.View style={[StyleSheet.absoluteFill, outgoingStyle]} pointerEvents="box-none">
               <RouteInfoBar route={outRoute} userId={user?.id} />
             </Animated.View>
           ) : null;
@@ -617,7 +634,7 @@ export default function RouteDetailScreen() {
         {incomingRouteId && (() => {
           const inRoute = data?.routes?.find((r: any) => r.id === incomingRouteId);
           return inRoute ? (
-            <Animated.View style={[StyleSheet.absoluteFill, incomingStyle]} pointerEvents="none">
+            <Animated.View style={[StyleSheet.absoluteFill, incomingStyle]} pointerEvents="box-none">
               <RouteInfoBar route={inRoute} userId={user?.id} />
             </Animated.View>
           ) : null;
@@ -829,12 +846,28 @@ export default function RouteDetailScreen() {
                   : creator?.email
                   ? (creator.email as string).split("@")[0]
                   : null;
-                return name ? (
+                if (!name) return null;
+                const content = (
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 16 }}>
                     <Ionicons name="person-outline" size={13} color="#9ca3af" />
                     <Text style={{ fontSize: 13, color: "#9ca3af" }}>Set by {name}</Text>
                   </View>
-                ) : null;
+                );
+                if (!creator?.username) return content;
+                return (
+                  <TouchableOpacity
+                    onPress={() => {
+                      setShowInfo(false);
+                      router.push({
+                        pathname: "/(tabs)",
+                        params: { presetSearch: `@${creator.username}` },
+                      });
+                    }}
+                    accessibilityLabel={`View routes by ${name}`}
+                  >
+                    {content}
+                  </TouchableOpacity>
+                );
               })()}
 
               <TouchableOpacity

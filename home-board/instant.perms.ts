@@ -30,7 +30,7 @@ const rules = {
     allow: {
       view: "true",
       create: "auth.id != null",
-      update: "auth.id != null && auth.id in data.ref('creator.id')",
+      update: "auth.id != null && (auth.id in data.ref('creator.id') || request.modifiedFields.all(f, f in ['ascents', 'likes', 'comments', 'playlists']))",
       delete: "auth.id != null && auth.id in data.ref('creator.id')",
     },
   },
