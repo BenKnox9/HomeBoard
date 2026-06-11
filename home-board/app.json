@@ -4,7 +4,7 @@
     "slug": "home-board",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/BackyardBoard-appicon.png",
     "scheme": "backyardboard",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
