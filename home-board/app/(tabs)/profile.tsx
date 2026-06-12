@@ -158,7 +158,9 @@ export default function ProfileScreen() {
       ? {
           $users: {
             $: { where: { id: user.id } },
-            selectedBoard: {},
+            selectedBoard: {
+              creator: {},
+            },
             ascents: {
               route: {},
             },
@@ -192,6 +194,7 @@ export default function ProfileScreen() {
 
 const currentUser = data?.$users?.[0];
   const selectedBoard = currentUser?.selectedBoard;
+  const isBoardCreator = (selectedBoard as any)?.creator?.id === user?.id;
   const ascents = currentUser?.ascents ?? [];
   const allBoards = data?.boards ?? [];
   const currentUsername = (currentUser as any)?.username as string | undefined;
@@ -433,7 +436,7 @@ const currentUser = data?.$users?.[0];
               <Text className="text-white font-medium text-sm">Add board</Text>
             </TouchableOpacity>
           </View>
-          {selectedBoard && (
+          {selectedBoard && isBoardCreator && (
             <TouchableOpacity
               onPress={() =>
                 router.push({

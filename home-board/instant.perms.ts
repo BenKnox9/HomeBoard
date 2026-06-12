@@ -7,6 +7,7 @@ const rules = {
     allow: {
       view: "true",
       create: "auth.id != null && data.path.startsWith('boards/')",
+      delete: "auth.id != null && data.path.startsWith('boards/')",
     },
   },
   $users: {
