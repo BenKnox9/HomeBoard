@@ -15,6 +15,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useColorScheme,
   View,
 } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
@@ -45,6 +46,7 @@ export default function EditRouteScreen() {
   const { routeId } = useLocalSearchParams<{ routeId: string }>();
   const { user } = db.useAuth();
   const insets = useSafeAreaInsets();
+  const isDark = useColorScheme() === "dark";
 
   const [holds, setHolds] = useState<Hold[]>([]);
   const [activeColor, setActiveColor] = useState<HoldColor>("green");
@@ -52,6 +54,7 @@ export default function EditRouteScreen() {
   const [grade, setGrade] = useState("V0");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [allowMatch, setAllowMatch] = useState(true);
   const [saving, setSaving] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -69,7 +72,9 @@ export default function EditRouteScreen() {
       keyboardOffset.value = withTiming(0, { duration: Platform.OS === "ios" ? e.duration : 200 });
     });
     return () => { show.remove(); hide.remove(); };
-  }, []);
+    // keyboardOffset is a SharedValue — its identity is stable across
+    // renders, so listing it here doesn't cause this effect to re-run.
+  }, [keyboardOffset]);
 
   const formSheetStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: formY.value - keyboardOffset.value }],
@@ -90,7 +95,9 @@ export default function EditRouteScreen() {
             formY.value = withTiming(0, { duration: 200, easing: Easing.out(Easing.cubic) });
           }
         }),
-    []
+    // formY is a SharedValue — its identity is stable across renders, so
+    // listing it here doesn't recreate the gesture mid-interaction.
+    [formY]
   );
 
   function openForm() {
@@ -126,6 +133,7 @@ export default function EditRouteScreen() {
       setGrade(route.grade ?? "V0");
       setName(route.name ?? "");
       setDescription(route.description ?? "");
+      setAllowMatch(route.allowMatch ?? true);
       setLoaded(true);
     }
   }, [route, loaded]);
@@ -152,6 +160,7 @@ export default function EditRouteScreen() {
         name: name.trim(),
         grade,
         holds: JSON.stringify(holds),
+        allowMatch,
       };
       if (description.trim()) routeData.description = description.trim();
       await db.transact([db.tx.routes[routeId].update(routeData)]);
@@ -258,7 +267,7 @@ export default function EditRouteScreen() {
 
       {Platform.OS === "ios" && (
         <InputAccessoryView nativeID={INPUT_ACCESSORY_ID}>
-          <View style={styles.inputAccessory}>
+          <View style={[styles.inputAccessory, { backgroundColor: isDark ? "#374151" : "#f3f4f6", borderTopColor: isDark ? "#4b5563" : "#e5e7eb" }]}>
             <TouchableOpacity onPress={() => Keyboard.dismiss()} style={styles.inputAccessoryBtn}>
               <Ionicons name="chevron-down" size={16} color="#6366f1" />
               <Text style={styles.inputAccessoryText}>Dismiss</Text>
@@ -267,11 +276,11 @@ export default function EditRouteScreen() {
         </InputAccessoryView>
       )}
 
-      <Animated.View style={[styles.formSheet, formSheetStyle]}>
+      <Animated.View style={[styles.formSheet, { backgroundColor: isDark ? "#1f2937" : "#fff" }, formSheetStyle]}>
         <GestureDetector gesture={handleDragGesture}>
           <View style={styles.sheetHeader}>
             <View style={{ width: 48 }} />
-            <View style={styles.handleBar} />
+            <View style={[styles.handleBar, { backgroundColor: isDark ? "#4b5563" : "#e5e7eb" }]} />
             <TouchableOpacity onPress={closeForm} style={{ width: 48, alignItems: "flex-end" }}>
               <Text style={styles.doneText}>Done</Text>
             </TouchableOpacity>
@@ -285,16 +294,20 @@ export default function EditRouteScreen() {
               <TouchableOpacity
                 key={g}
                 onPress={() => setGrade(g)}
-                style={[styles.gradePill, { backgroundColor: grade === g ? "#6366f1" : "#e5e7eb" }]}
+                style={[styles.gradePill, { backgroundColor: grade === g ? "#6366f1" : isDark ? "#374151" : "#e5e7eb" }]}
               >
-                <Text style={[styles.gradePillText, { color: grade === g ? "#fff" : "#4b5563" }]}>{g}</Text>
+                <Text style={[styles.gradePillText, { color: grade === g ? "#fff" : isDark ? "#d1d5db" : "#4b5563" }]}>{g}</Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
 
           <Text style={styles.sectionLabel}>Route name *</Text>
           <TextInput
-            style={styles.textInput}
+            style={[styles.textInput, {
+              backgroundColor: isDark ? "#111827" : "#fff",
+              borderColor: isDark ? "#374151" : "#e5e7eb",
+              color: isDark ? "#f3f4f6" : "#111827",
+            }]}
             placeholder="e.g. The Crimper"
             placeholderTextColor="#9ca3af"
             value={name}
@@ -306,7 +319,13 @@ export default function EditRouteScreen() {
 
           <Text style={styles.sectionLabel}>Description (optional)</Text>
           <TextInput
-            style={[styles.textInput, { height: 72, textAlignVertical: "top" }]}
+            style={[styles.textInput, {
+              height: 72,
+              textAlignVertical: "top",
+              backgroundColor: isDark ? "#111827" : "#fff",
+              borderColor: isDark ? "#374151" : "#e5e7eb",
+              color: isDark ? "#f3f4f6" : "#111827",
+            }]}
             placeholder="Describe the movement or style..."
             placeholderTextColor="#9ca3af"
             value={description}
@@ -316,6 +335,26 @@ export default function EditRouteScreen() {
             numberOfLines={3}
             inputAccessoryViewID={INPUT_ACCESSORY_ID}
           />
+
+          <Text style={styles.sectionLabel}>Match</Text>
+          <View style={{ flexDirection: "row", gap: 8, marginBottom: 16 }}>
+            <TouchableOpacity
+              onPress={() => setAllowMatch(true)}
+              style={[styles.gradePill, { backgroundColor: allowMatch ? "#6366f1" : isDark ? "#374151" : "#e5e7eb" }]}
+            >
+              <Text style={[styles.gradePillText, { color: allowMatch ? "#fff" : isDark ? "#d1d5db" : "#4b5563" }]}>
+                Match allowed
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setAllowMatch(false)}
+              style={[styles.gradePill, { backgroundColor: !allowMatch ? "#6366f1" : isDark ? "#374151" : "#e5e7eb" }]}
+            >
+              <Text style={[styles.gradePillText, { color: !allowMatch ? "#fff" : isDark ? "#d1d5db" : "#4b5563" }]}>
+                No match
+              </Text>
+            </TouchableOpacity>
+          </View>
 
           <TouchableOpacity
             onPress={save}

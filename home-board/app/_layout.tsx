@@ -8,7 +8,7 @@ import { db } from "@/lib/db";
 import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { ActivityIndicator, View } from "react-native";
+import { ActivityIndicator, useColorScheme, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 export default function RootLayout() {
@@ -17,6 +17,7 @@ export default function RootLayout() {
   });
 
   const { isLoading, user } = db.useAuth();
+  const isDark = useColorScheme() === "dark";
 
   if (!loaded || isLoading) {
     return (
@@ -48,14 +49,18 @@ export default function RootLayout() {
           <Stack>
             <Stack.Screen name="(tabs)" options={{ headerShown: false, title: "Profile" }} />
             <Stack.Screen name="route/[id]" options={{ headerShown: false }} />
-            <Stack.Screen name="playlist/[id]" options={{}} />
+            <Stack.Screen
+              name="playlist/[id]"
+              options={{
+                headerStyle: { backgroundColor: isDark ? "#111827" : "#ffffff" },
+                headerTintColor: isDark ? "#e5e7eb" : "#111827",
+              }}
+            />
             <Stack.Screen
               name="create-route"
               options={{
-                headerTitle: "New route",
                 presentation: "modal",
-                headerTransparent: true,
-                headerTintColor: "#fff",
+                headerShown: false,
               }}
             />
             <Stack.Screen

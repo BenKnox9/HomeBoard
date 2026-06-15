@@ -21,6 +21,12 @@ import {
   useColorScheme,
   View,
 } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 
 const PROFILE_ACCESSORY_ID = "profile-inputs";
 
@@ -33,12 +39,6 @@ const COUNTRIES = [
   "South Korea", "Spain", "Sweden", "Switzerland", "United Kingdom",
   "United States", "Other",
 ];
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from "react-native-reanimated";
 
 // ── Swipeable playlist row ────────────────────────────────────────────────────
 
@@ -195,7 +195,9 @@ export default function ProfileScreen() {
 const currentUser = data?.$users?.[0];
   const selectedBoard = currentUser?.selectedBoard;
   const isBoardCreator = (selectedBoard as any)?.creator?.id === user?.id;
-  const ascents = currentUser?.ascents ?? [];
+  // Memoised so `[]` isn't a fresh array on every render when ascents is
+  // undefined — keeps the uniqueDays/climbsPerSession useMemo below stable.
+  const ascents = useMemo(() => currentUser?.ascents ?? [], [currentUser?.ascents]);
   const allBoards = data?.boards ?? [];
   const currentUsername = (currentUser as any)?.username as string | undefined;
 
@@ -304,7 +306,7 @@ const currentUser = data?.$users?.[0];
     try {
       await db.transact([
         db.tx.playlists[plId]
-          .update({ name: newPlaylistName.trim(), createdAt: Date.now() })
+          .update({ name: newPlaylistName.trim(), createdAt: Date.now(), visibility: "private" })
           .link({ creator: user.id, board: selectedBoard.id }),
       ]);
       setNewPlaylistName("");

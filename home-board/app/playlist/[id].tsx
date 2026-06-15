@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Alert,
   LayoutAnimation,
+  Modal,
   Platform,
   ScrollView,
   Text,
@@ -113,6 +114,7 @@ function SwipeableRouteRow({
   showHandle,
   isBeingDragged,
   anyDragging,
+  canEdit,
   onPress,
   onRemove,
   onHandleOpen,
@@ -123,6 +125,7 @@ function SwipeableRouteRow({
   showHandle: boolean;
   isBeingDragged: boolean;
   anyDragging: boolean;
+  canEdit: boolean;
   onPress: () => void;
   onRemove: () => void;
   onHandleOpen: () => void;
@@ -158,7 +161,7 @@ function SwipeableRouteRow({
   // • Normal mode : left → show remove (−80), right → open handle mode
   // • From −80    : swiping right returns to 0 only (not to handle mode)
   const rowPan = Gesture.Pan()
-    .enabled(!showHandle)
+    .enabled(!showHandle && canEdit)
     .activeOffsetX([-10, 10])
     .failOffsetY([-5, 5])
     .onStart(() => {
@@ -205,8 +208,9 @@ function SwipeableRouteRow({
       onLayout={(e) => onItemLayout(e.nativeEvent.layout.y, e.nativeEvent.layout.height)}
     >
       {/* Remove button — hidden while any drag is happening so it doesn't show
-          through the transparent placeholder row */}
-      {!anyDragging && (
+          through the transparent placeholder row, and hidden entirely when
+          the viewer doesn't have edit access */}
+      {!anyDragging && canEdit && (
         <View
           style={{
             position: "absolute",
@@ -292,12 +296,15 @@ export default function PlaylistDetailScreen() {
   const router = useRouter();
   const isDark = useColorScheme() === "dark";
 
+  const { user } = db.useAuth();
+
   const { isLoading, error, data } = db.useQuery(
     playlistId
       ? {
           playlists: {
             $: { where: { id: playlistId } },
             routes: { ascents: {} },
+            creator: {},
           },
         }
       : null
@@ -308,6 +315,8 @@ export default function PlaylistDetailScreen() {
   const [sortedRoutes, setSortedRoutes] = useState<any[]>([]);
   const [dragHandleMode, setDragHandleMode] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [savingSettings, setSavingSettings] = useState(false);
 
   // Mutable refs for gesture callbacks (avoids stale-closure issues)
   const isDraggingRef = useRef(false);
@@ -337,6 +346,10 @@ export default function PlaylistDetailScreen() {
   });
 
   const playlist = data?.playlists?.[0];
+  const isOwner = (playlist as any)?.creator?.id === user?.id;
+  const visibility = ((playlist as any)?.visibility as string | undefined) ?? "private";
+  const publicAccess = ((playlist as any)?.publicAccess as string | undefined) ?? "view";
+  const canEdit = isOwner || (visibility === "public" && publicAccess === "edit");
 
   // Reconcile sortedRoutes whenever DB data changes.
   // Skipped while a drag is in progress to avoid clobbering the reorder.
@@ -433,6 +446,34 @@ export default function PlaylistDetailScreen() {
     }
   }
 
+  async function setVisibility(next: "public" | "private") {
+    setSavingSettings(true);
+    try {
+      const update: Record<string, string> = { visibility: next };
+      if (next === "public" && !publicAccess) {
+        update.publicAccess = "view";
+      }
+      await db.transact([(db.tx.playlists as any)[playlistId].update(update)]);
+    } catch (e: any) {
+      Alert.alert("Error", e.message ?? "Failed to update visibility.");
+    } finally {
+      setSavingSettings(false);
+    }
+  }
+
+  async function setPublicAccess(next: "view" | "edit") {
+    setSavingSettings(true);
+    try {
+      await db.transact([
+        (db.tx.playlists as any)[playlistId].update({ publicAccess: next }),
+      ]);
+    } catch (e: any) {
+      Alert.alert("Error", e.message ?? "Failed to update access level.");
+    } finally {
+      setSavingSettings(false);
+    }
+  }
+
   // Find which route the user long-pressed on (called via runOnJS from the gesture
   // worklet, so all refs are accessible) and start the drag for that route.
   function startDragAtY(absoluteY: number) {
@@ -510,13 +551,31 @@ export default function PlaylistDetailScreen() {
           ),
           headerStyle: { backgroundColor: isDark ? "#111827" : "#ffffff" },
           headerTintColor: isDark ? "#e5e7eb" : "#111827",
+          headerRight: isOwner
+            ? () => (
+                <TouchableOpacity
+                  onPress={() => setShowSettings(true)}
+                  accessibilityLabel="Playlist settings"
+                  style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }}
+                >
+                  <Ionicons
+                    name="settings-outline"
+                    size={22}
+                    color={isDark ? "#e5e7eb" : "#111827"}
+                    style={{ includeFontPadding: false }}
+                  />
+                </TouchableOpacity>
+              )
+            : undefined,
         }}
       />
 
       {sortedRoutes.length === 0 ? (
         <View className="flex-1 items-center justify-center">
           <Text className="text-gray-400 dark:text-gray-500 text-base">No routes in this playlist yet.</Text>
-          <Text className="text-gray-400 dark:text-gray-500 text-sm mt-1">Add routes from their detail page.</Text>
+          {canEdit && (
+            <Text className="text-gray-400 dark:text-gray-500 text-sm mt-1">Add routes from their detail page.</Text>
+          )}
         </View>
       ) : (
         <ScrollView
@@ -552,6 +611,7 @@ export default function PlaylistDetailScreen() {
                 showHandle={dragHandleMode}
                 isBeingDragged={isDragging && draggingIdRef.current === route.id}
                 anyDragging={isDragging}
+                canEdit={canEdit}
                 onPress={() =>
                   router.push({
                     pathname: "/route/[id]",
@@ -630,6 +690,109 @@ export default function PlaylistDetailScreen() {
           </View>
         </ScrollView>
       )}
+
+      {/* Settings modal — owner only */}
+      <Modal
+        visible={showSettings}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowSettings(false)}
+      >
+        <TouchableOpacity
+          className="flex-1 bg-black/40 justify-end"
+          activeOpacity={1}
+          onPress={() => setShowSettings(false)}
+        >
+          <View
+            style={{ backgroundColor: isDark ? "#1f2937" : "#ffffff" }}
+            className="rounded-t-3xl p-6"
+          >
+            <Text className="text-lg font-bold text-gray-800 dark:text-gray-100 mb-4">
+              Playlist settings
+            </Text>
+
+            <Text className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase mb-2">
+              Visibility
+            </Text>
+            <View className="flex-row bg-gray-100 dark:bg-gray-700 rounded-xl p-1 mb-4">
+              <TouchableOpacity
+                onPress={() => setVisibility("private")}
+                disabled={savingSettings}
+                className="flex-1 rounded-lg py-2 items-center"
+                style={{ backgroundColor: visibility === "private" ? "#6366f1" : "transparent" }}
+              >
+                <Text
+                  className="font-semibold text-sm"
+                  style={{ color: visibility === "private" ? "#fff" : (isDark ? "#9ca3af" : "#6b7280") }}
+                >
+                  Private
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setVisibility("public")}
+                disabled={savingSettings}
+                className="flex-1 rounded-lg py-2 items-center"
+                style={{ backgroundColor: visibility === "public" ? "#6366f1" : "transparent" }}
+              >
+                <Text
+                  className="font-semibold text-sm"
+                  style={{ color: visibility === "public" ? "#fff" : (isDark ? "#9ca3af" : "#6b7280") }}
+                >
+                  Public
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {visibility === "public" && (
+              <>
+                <Text className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase mb-2">
+                  Public access
+                </Text>
+                <View className="flex-row bg-gray-100 dark:bg-gray-700 rounded-xl p-1 mb-2">
+                  <TouchableOpacity
+                    onPress={() => setPublicAccess("view")}
+                    disabled={savingSettings}
+                    className="flex-1 rounded-lg py-2 items-center"
+                    style={{ backgroundColor: publicAccess === "view" ? "#6366f1" : "transparent" }}
+                  >
+                    <Text
+                      className="font-semibold text-sm"
+                      style={{ color: publicAccess === "view" ? "#fff" : (isDark ? "#9ca3af" : "#6b7280") }}
+                    >
+                      View only
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setPublicAccess("edit")}
+                    disabled={savingSettings}
+                    className="flex-1 rounded-lg py-2 items-center"
+                    style={{ backgroundColor: publicAccess === "edit" ? "#6366f1" : "transparent" }}
+                  >
+                    <Text
+                      className="font-semibold text-sm"
+                      style={{ color: publicAccess === "edit" ? "#fff" : (isDark ? "#9ca3af" : "#6b7280") }}
+                    >
+                      Can edit
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                <Text className="text-gray-400 dark:text-gray-500 text-xs mb-4">
+                  {publicAccess === "edit"
+                    ? "Anyone on this board can open this playlist and add or remove routes."
+                    : "Anyone on this board can open this playlist, but only you can change its routes."}
+                </Text>
+              </>
+            )}
+
+            <TouchableOpacity
+              onPress={() => setShowSettings(false)}
+              className="mt-2 bg-gray-100 dark:bg-gray-700 rounded-xl py-3 items-center"
+            >
+              <Text className="text-gray-600 dark:text-gray-300 font-medium">Done</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }

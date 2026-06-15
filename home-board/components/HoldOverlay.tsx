@@ -1,7 +1,7 @@
 import { id } from "@instantdb/react-native";
 import { Image } from "expo-image";
 import { useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   useAnimatedStyle,
@@ -18,6 +18,7 @@ export interface Hold {
   y: number; // 0–1 fraction of the image content area
   color: HoldColor;
   size?: HoldSize;
+  sequence?: number; // order number for "Force sequence" mode (blue holds only)
 }
 
 export const HOLD_COLORS: Record<HoldColor, string> = {
@@ -223,19 +224,48 @@ export default function HoldOverlay({
             position: "absolute",
             width: dotSize,
             height: dotSize,
-            borderRadius: dotSize / 2,
-            backgroundColor: colorWithAlpha(solidColor, 0.15),
-            borderWidth: 3,
-            borderColor: solidColor,
             left: area.offsetX + hold.x * area.displayW - dotSize / 2,
             top: area.offsetY + hold.y * area.displayH - dotSize / 2,
-            shadowColor: "#000",
-            shadowOffset: { width: 0, height: 1 },
-            shadowOpacity: 0.5,
-            shadowRadius: 3,
-            elevation: 4,
           }}
-        />
+        >
+          <View
+            style={{
+              width: dotSize,
+              height: dotSize,
+              borderRadius: dotSize / 2,
+              backgroundColor: colorWithAlpha(solidColor, 0.15),
+              borderWidth: 3,
+              borderColor: solidColor,
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: 1 },
+              shadowOpacity: 0.5,
+              shadowRadius: 3,
+              elevation: 4,
+            }}
+          />
+          {hold.color === "blue" && hold.sequence !== undefined && (
+            <View
+              style={{
+                position: "absolute",
+                top: -6,
+                right: -6,
+                minWidth: 18,
+                height: 18,
+                borderRadius: 9,
+                paddingHorizontal: 3,
+                backgroundColor: "#fff",
+                borderWidth: 1.5,
+                borderColor: solidColor,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Text style={{ color: solidColor, fontSize: 10, fontWeight: "700" }}>
+                {hold.sequence}
+              </Text>
+            </View>
+          )}
+        </View>
       );
     });
   }

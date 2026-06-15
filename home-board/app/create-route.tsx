@@ -17,6 +17,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useColorScheme,
   View,
 } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
@@ -26,7 +27,6 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const HOLD_COLORS: { color: HoldColor; hex: string }[] = [
   { color: "green", hex: "#22c55e" },
@@ -41,7 +41,7 @@ const INPUT_ACCESSORY_ID = "create-route";
 export default function CreateRouteScreen() {
   const router = useRouter();
   const { user } = db.useAuth();
-  const insets = useSafeAreaInsets();
+  const isDark = useColorScheme() === "dark";
 
   const [holds, setHolds] = useState<Hold[]>([]);
   const [activeColor, setActiveColor] = useState<HoldColor>("green");
@@ -49,9 +49,43 @@ export default function CreateRouteScreen() {
   const [grade, setGrade] = useState("V0");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [allowMatch, setAllowMatch] = useState(true);
+  const [forceSequence, setForceSequence] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [showLegend, setShowLegend] = useState(false);
+
+  // Wraps HoldOverlay's onHoldsChange to maintain sequence numbers on blue
+  // holds when "Force sequence" is on, and to keep them consecutive on removal.
+  function handleHoldsChange(newHolds: Hold[]) {
+    if (newHolds.length > holds.length) {
+      const addedHold = newHolds[newHolds.length - 1];
+      if (forceSequence && addedHold.color === "blue") {
+        const nextSeq =
+          newHolds.filter((h) => h.color === "blue" && h.sequence !== undefined).length + 1;
+        setHolds(
+          newHolds.map((h) => (h.id === addedHold.id ? { ...h, sequence: nextSeq } : h))
+        );
+        return;
+      }
+      setHolds(newHolds);
+      return;
+    }
+    if (newHolds.length < holds.length) {
+      let n = 0;
+      setHolds(
+        newHolds.map((h) => {
+          if (h.color === "blue" && h.sequence !== undefined) {
+            n += 1;
+            return { ...h, sequence: n };
+          }
+          return h;
+        })
+      );
+      return;
+    }
+    setHolds(newHolds);
+  }
 
   // Slide-up form sheet — withTiming for a smooth non-bouncy animation
   const formY = useSharedValue(FORM_HEIGHT);
@@ -72,7 +106,9 @@ export default function CreateRouteScreen() {
       });
     });
     return () => { show.remove(); hide.remove(); };
-  }, []);
+    // keyboardOffset is a SharedValue — its identity is stable across
+    // renders, so listing it here doesn't cause this effect to re-run.
+  }, [keyboardOffset]);
 
   const formSheetStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: formY.value - keyboardOffset.value }],
@@ -99,7 +135,9 @@ export default function CreateRouteScreen() {
             formY.value = withTiming(0, { duration: 200, easing: Easing.out(Easing.cubic) });
           }
         }),
-    []
+    // formY is a SharedValue — its identity is stable across renders, so
+    // listing it here doesn't recreate the gesture mid-interaction.
+    [formY]
   );
 
   function openForm() {
@@ -119,7 +157,7 @@ export default function CreateRouteScreen() {
     setFormOpen(false);
   }
 
-  const { isLoading, data } = db.useQuery(
+  const { isLoading, error, data } = db.useQuery(
     user
       ? { $users: { $: { where: { id: user.id } }, selectedBoard: { photo: {}, routes: {} } } }
       : null
@@ -157,6 +195,7 @@ export default function CreateRouteScreen() {
         name: name.trim(),
         grade,
         holds: JSON.stringify(holds),
+        allowMatch,
         createdAt: Date.now(),
       };
       if (description.trim()) {
@@ -179,6 +218,16 @@ export default function CreateRouteScreen() {
     return (
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
         <ActivityIndicator size="large" color="#6366f1" />
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 32 }}>
+        <Text style={{ color: "#ef4444", textAlign: "center", fontSize: 14 }}>
+          {error.message}
+        </Text>
       </View>
     );
   }
@@ -210,38 +259,69 @@ export default function CreateRouteScreen() {
       ? "● Add a red finish hold"
       : null;
 
-  // Badges sit below the transparent nav header
-  const badgeTop = insets.top + 48;
+  // Badges sit just below the top bar
+  const badgeTop = 60;
 
   return (
     <View style={{ flex: 1, backgroundColor: "#000" }}>
       {/* Disable the native modal swipe-down-to-dismiss when the form is open
           so the grab-bar gesture always wins over the navigation gesture */}
-      <Stack.Screen options={{ gestureEnabled: !formOpen }} />
+      <Stack.Screen
+        options={{
+          gestureEnabled: !formOpen,
+        }}
+      />
 
-      {/* Full-screen interactive image — fills the whole screen behind the transparent header */}
+      {/* Full-screen interactive image — fills the whole screen behind the custom top bar */}
       <HoldOverlay
         photoUrl={photoUrl}
         holds={holds}
         mode="interactive"
         activeColor={activeColor}
         activeSize={activeSize}
-        onHoldsChange={setHolds}
+        onHoldsChange={handleHoldsChange}
       />
 
-      {/* Hold count badge + legend button — top right */}
-      <View style={{ position: "absolute", top: badgeTop, right: 12, flexDirection: "row", alignItems: "center", gap: 6 }}>
+      {/* Top bar — back button, title, and help button, all inline */}
+      <View style={[styles.topBar, { top: 8 }]}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          accessibilityLabel="Close"
+          style={styles.iconBtn}
+        >
+          <Ionicons name="close" size={20} color="#fff" />
+        </TouchableOpacity>
+
         <View style={styles.holdCountBadge}>
-          <Text style={styles.holdCountText}>
-            {holds.length} hold{holds.length !== 1 ? "s" : ""}
-          </Text>
+          <Text style={styles.holdCountText}>New route</Text>
         </View>
+
         <TouchableOpacity
           onPress={() => setShowLegend(true)}
           accessibilityLabel="Hold colour legend"
-          style={[styles.holdCountBadge, { paddingHorizontal: 8 }]}
+          style={styles.iconBtn}
         >
-          <Text style={styles.holdCountText}>?</Text>
+          <Text style={styles.iconBtnText}>?</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Force-sequence toggle — top right */}
+      <View style={{ position: "absolute", top: badgeTop, right: 16 }}>
+        <TouchableOpacity
+          onPress={() => setForceSequence((v) => !v)}
+          accessibilityLabel={forceSequence ? "Disable force sequence" : "Enable force sequence"}
+          style={[
+            styles.holdCountBadge,
+            {
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 4,
+              backgroundColor: forceSequence ? "#6366f1" : "rgba(0,0,0,0.65)",
+            },
+          ]}
+        >
+          <Ionicons name="list-outline" size={13} color="#fff" />
+          <Text style={styles.holdCountText}>Sequence</Text>
         </TouchableOpacity>
       </View>
 
@@ -330,37 +410,70 @@ export default function CreateRouteScreen() {
         </InputAccessoryView>
       )}
 
-      {/* Hold colour legend modal */}
+      {/* Help modal — hold colour legend + how-to guide */}
       <Modal visible={showLegend} transparent animationType="fade" onRequestClose={() => setShowLegend(false)}>
-        <TouchableOpacity
+        <View
           style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center" }}
-          activeOpacity={1}
-          onPress={() => setShowLegend(false)}
         >
-          <View style={{ backgroundColor: "#fff", borderRadius: 20, padding: 24, width: 280 }}>
-            <Text style={{ fontSize: 16, fontWeight: "700", color: "#111827", marginBottom: 16 }}>Hold colours</Text>
-            {[
-              { hex: "#22c55e", label: "Green", desc: "Start holds" },
-              { hex: "#3b82f6", label: "Blue", desc: "Hand and foot holds" },
-              { hex: "#a855f7", label: "Purple", desc: "Feet only holds" },
-              { hex: "#ef4444", label: "Red", desc: "End holds" },
-            ].map(({ hex, label, desc }) => (
-              <View key={label} style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
-                <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: hex, marginRight: 12 }} />
-                <View>
-                  <Text style={{ fontWeight: "600", color: "#111827", fontSize: 14 }}>{label}</Text>
-                  <Text style={{ color: "#9ca3af", fontSize: 12 }}>{desc}</Text>
+          <View
+            style={{
+              backgroundColor: isDark ? "#1f2937" : "#fff",
+              borderRadius: 20,
+              padding: 24,
+              width: 300,
+              maxHeight: "80%",
+            }}
+          >
+            <Text style={{ fontSize: 16, fontWeight: "700", color: isDark ? "#f3f4f6" : "#111827", marginBottom: 16 }}>
+              Help
+            </Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {/* Hold colours */}
+              <Text style={{ fontSize: 12, fontWeight: "700", color: isDark ? "#9ca3af" : "#6b7280", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 12 }}>
+                Hold colours
+              </Text>
+              {[
+                { hex: "#22c55e", label: "Green", desc: "Start holds" },
+                { hex: "#3b82f6", label: "Blue", desc: "Hand and foot holds" },
+                { hex: "#a855f7", label: "Purple", desc: "Feet only holds" },
+                { hex: "#ef4444", label: "Red", desc: "End holds" },
+              ].map(({ hex, label, desc }) => (
+                <View key={label} style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
+                  <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: hex, marginRight: 12 }} />
+                  <View>
+                    <Text style={{ fontWeight: "600", color: isDark ? "#f3f4f6" : "#111827", fontSize: 14 }}>{label}</Text>
+                    <Text style={{ color: "#9ca3af", fontSize: 12 }}>{desc}</Text>
+                  </View>
                 </View>
-              </View>
-            ))}
+              ))}
+
+              {/* Divider */}
+              <View style={{ height: 1, backgroundColor: isDark ? "#374151" : "#f3f4f6", marginVertical: 16 }} />
+
+              {/* How it works */}
+              <Text style={{ fontSize: 12, fontWeight: "700", color: isDark ? "#9ca3af" : "#6b7280", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 12 }}>
+                How it works
+              </Text>
+              {[
+                { title: "Placing holds", desc: "Tap the board to place a dot, and tap a dot again to remove it. Pinch to zoom and drag to pan for precise placement." },
+                { title: "Dot size", desc: "Change the dot size with the picker at the bottom." },
+                { title: "Force sequence", desc: "Tap Sequence to number your holds automatically — each blue hold gets the next number in order so you can set a required climbing sequence." },
+                { title: "Saving", desc: "Add the route's details to save the route." },
+              ].map(({ title, desc }) => (
+                <View key={title} style={{ marginBottom: 12 }}>
+                  <Text style={{ fontWeight: "600", color: isDark ? "#f3f4f6" : "#111827", fontSize: 14, marginBottom: 2 }}>{title}</Text>
+                  <Text style={{ color: isDark ? "#9ca3af" : "#6b7280", fontSize: 12, lineHeight: 18 }}>{desc}</Text>
+                </View>
+              ))}
+            </ScrollView>
             <TouchableOpacity
               onPress={() => setShowLegend(false)}
-              style={{ backgroundColor: "#6366f1", borderRadius: 12, paddingVertical: 10, alignItems: "center", marginTop: 4 }}
+              style={{ backgroundColor: "#6366f1", borderRadius: 12, paddingVertical: 10, alignItems: "center", marginTop: 8 }}
             >
               <Text style={{ color: "#fff", fontWeight: "600" }}>Got it</Text>
             </TouchableOpacity>
           </View>
-        </TouchableOpacity>
+        </View>
       </Modal>
 
       {/* Sliding form sheet */}
@@ -440,6 +553,27 @@ export default function CreateRouteScreen() {
             inputAccessoryViewID={INPUT_ACCESSORY_ID}
           />
 
+          {/* Match / No-match */}
+          <Text style={styles.sectionLabel}>Match</Text>
+          <View style={{ flexDirection: "row", gap: 8, marginBottom: 16 }}>
+            <TouchableOpacity
+              onPress={() => setAllowMatch(true)}
+              style={[styles.gradePill, { backgroundColor: allowMatch ? "#6366f1" : "#e5e7eb" }]}
+            >
+              <Text style={[styles.gradePillText, { color: allowMatch ? "#fff" : "#4b5563" }]}>
+                Match allowed
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setAllowMatch(false)}
+              style={[styles.gradePill, { backgroundColor: !allowMatch ? "#6366f1" : "#e5e7eb" }]}
+            >
+              <Text style={[styles.gradePillText, { color: !allowMatch ? "#fff" : "#4b5563" }]}>
+                No match
+              </Text>
+            </TouchableOpacity>
+          </View>
+
           {/* Save */}
           <TouchableOpacity
             onPress={save}
@@ -459,18 +593,40 @@ export default function CreateRouteScreen() {
 }
 
 const styles = StyleSheet.create({
+  topBar: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    height: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    zIndex: 10,
+  },
+
   holdCountBadge: {
-    backgroundColor: "rgba(0,0,0,0.55)",
+    backgroundColor: "rgba(0,0,0,0.65)",
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 4,
   },
   holdCountText: { color: "#fff", fontSize: 12, fontWeight: "600" },
 
+  iconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  iconBtnText: { color: "#fff", fontSize: 16, fontWeight: "700" },
+
   hintBadge: {
     position: "absolute",
-    left: 12,
-    backgroundColor: "rgba(0,0,0,0.55)",
+    left: 16,
+    backgroundColor: "rgba(0,0,0,0.65)",
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 6,

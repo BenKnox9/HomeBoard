@@ -1,3 +1,4 @@
+import PlaylistCard from "@/components/PlaylistCard";
 import RouteCard from "@/components/RouteCard";
 import { db } from "@/lib/db";
 import { GRADES, gradeIndex } from "@/lib/grades";
@@ -36,6 +37,7 @@ export default function RoutesScreen() {
   const [sort, setSort] = useState<SortState | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [showPlaylists, setShowPlaylists] = useState(false);
 
   useEffect(() => {
     if (presetSearch) {
@@ -57,6 +59,10 @@ export default function RoutesScreen() {
             selectedBoard: {
               routes: {
                 ascents: {},
+                creator: {},
+              },
+              playlists: {
+                routes: {},
                 creator: {},
               },
             },
@@ -121,6 +127,17 @@ export default function RoutesScreen() {
       return sort.dir === "asc" ? diff : -diff;
     });
 
+  const allPlaylists = (selectedBoard?.playlists ?? []) as any[];
+  const visiblePlaylists = allPlaylists.filter(
+    (pl) => pl.visibility === "public" || pl.creator?.id === user?.id
+  );
+  const filteredPlaylists =
+    showPlaylists && !isUsernameSearch
+      ? visiblePlaylists.filter(
+          (pl) => !searchTerm || pl.name?.toLowerCase().includes(searchTerm)
+        )
+      : [];
+
   if (!selectedBoard) {
     return (
       <View className="flex-1 items-center justify-center bg-gray-50 dark:bg-gray-900 px-8">
@@ -183,6 +200,23 @@ export default function RoutesScreen() {
         <View className="flex-row px-4 pt-2 gap-x-2">
           <SortButton field="grade" label="By grade" />
           <SortButton field="ascents" label="By ascents" />
+          <TouchableOpacity
+            onPress={() => setShowPlaylists((v) => !v)}
+            className="flex-row items-center rounded-lg px-3 py-1.5 gap-x-1"
+            style={{ backgroundColor: showPlaylists ? "#6366f1" : (isDark ? "#374151" : "#f3f4f6") }}
+          >
+            <Ionicons
+              name="albums-outline"
+              size={12}
+              color={showPlaylists ? "#fff" : (isDark ? "#9ca3af" : "#6b7280")}
+            />
+            <Text
+              className="text-xs font-semibold"
+              style={{ color: showPlaylists ? "#fff" : (isDark ? "#9ca3af" : "#6b7280") }}
+            >
+              Playlists
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {/* Search bar */}
@@ -239,7 +273,11 @@ export default function RoutesScreen() {
                 onPress={() =>
                   setGradeFilters((prev) => {
                     const next = new Set(prev);
-                    next.has(g) ? next.delete(g) : next.add(g);
+                    if (next.has(g)) {
+                      next.delete(g);
+                    } else {
+                      next.add(g);
+                    }
                     return next;
                   })
                 }
@@ -259,7 +297,7 @@ export default function RoutesScreen() {
       </View>
 
       {/* Route list */}
-      {filteredRoutes.length === 0 ? (
+      {filteredRoutes.length === 0 && filteredPlaylists.length === 0 ? (
         <View className="flex-1 items-center justify-center">
           <Text className="text-gray-400 dark:text-gray-500 text-base">
             {allRoutes.length === 0
@@ -269,22 +307,37 @@ export default function RoutesScreen() {
         </View>
       ) : (
         <FlatList
-          data={filteredRoutes.slice(0, visibleCount)}
-          keyExtractor={(r) => r.id}
-          renderItem={({ item }) => (
-            <RouteCard
-              route={item}
-              onPress={() =>
-                router.push({
-                  pathname: "/route/[id]",
-                  params: {
-                    id: item.id,
-                    routeIds: JSON.stringify(filteredRoutes.map((r) => r.id)),
-                  },
-                })
-              }
-            />
-          )}
+          data={[
+            ...filteredPlaylists.map((pl) => ({ kind: "playlist" as const, data: pl })),
+            ...filteredRoutes.slice(0, visibleCount).map((r) => ({ kind: "route" as const, data: r })),
+          ]}
+          keyExtractor={(item) => `${item.kind}-${item.data.id}`}
+          renderItem={({ item }) =>
+            item.kind === "playlist" ? (
+              <PlaylistCard
+                playlist={item.data}
+                onPress={() =>
+                  router.push({
+                    pathname: "/playlist/[id]",
+                    params: { id: item.data.id },
+                  })
+                }
+              />
+            ) : (
+              <RouteCard
+                route={item.data}
+                onPress={() =>
+                  router.push({
+                    pathname: "/route/[id]",
+                    params: {
+                      id: item.data.id,
+                      routeIds: JSON.stringify(filteredRoutes.map((r) => r.id)),
+                    },
+                  })
+                }
+              />
+            )
+          }
           contentContainerStyle={{ padding: 16 }}
           keyboardShouldPersistTaps="handled"
           ListFooterComponent={

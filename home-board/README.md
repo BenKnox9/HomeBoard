@@ -14,6 +14,8 @@ Routes are set on a board by placing hold markers on the board photo. Each route
 - A **name** and **grade** (V-scale, V0–V12+)
 - **Hold positions** stored as JSON coordinates, rendered as coloured dots overlaid on the board photo
 - A **creator** (the user who set it)
+- A **Match / No-match** setting, shown as a badge on the route detail screen
+- Optionally, a **forced sequence** — blue holds can be numbered in placement order (via the "Sequence" toggle when creating a route), shown as order numbers next to each blue hold
 
 When viewing a route, you can pinch-to-zoom and pan the board photo, and swipe left/right to move between routes in the list.
 
@@ -26,6 +28,14 @@ When you complete a route, tap **Log ascent** and record how many falls/attempts
 
 ### Playlists
 Group routes into named playlists for a training session or project list. Within a playlist you can drag-and-drop to reorder routes, and swipe left to remove a route.
+
+Every playlist has a **visibility** setting — `Private` (only the owner can see or open it) or `Public` (visible to anyone on the board). New playlists default to `Private`.
+
+Public playlists also have a **public access** level, set by the owner:
+- **View only** — anyone on the board can open the playlist and see its routes, but cannot reorder or remove anything.
+- **Can edit** — any board user can add, remove, and reorder routes in the playlist.
+
+Regardless of access level, only the **owner** can rename the playlist or change its visibility/public-access settings — these are exposed via a settings gear that only the owner sees.
 
 ### Likes and comments
 You can like routes and leave comments visible to everyone on the board.
@@ -40,13 +50,13 @@ The profile screen shows your email, a customisable username, board management, 
 | Screen | File | Description |
 |--------|------|-------------|
 | Login | `components/LoginScreen.tsx` | Magic-code email authentication |
-| Routes list | `app/(tabs)/index.tsx` | All routes on the selected board, with search, grade filters, and sort |
+| Routes list | `app/(tabs)/index.tsx` | All routes on the selected board, with search, grade filters, and sort. A "Playlists" toggle surfaces public playlists (and your own) inline in the list |
 | Route detail | `app/route/[id].tsx` | Board photo with hold overlay, ascent logging, comments, likes |
-| Create route | `app/create-route.tsx` | Set hold positions by tapping the board photo |
-| Edit route | `app/edit-route.tsx` | Modify holds, name, and grade on an existing route |
-| Playlist detail | `app/playlist/[id].tsx` | Routes in a playlist with drag-to-reorder and swipe-to-remove |
-| Verify routes | `app/verify-routes.tsx` | Bulk-review routes (e.g. mark as active/retired) |
-| Update board photo | `app/update-board-photo.tsx` | Replace the photo for the current board |
+| Create route | `app/create-route.tsx` | Set hold positions by tapping the board photo. Includes a close button, a help modal (colour legend + usage guide), a "Sequence" toggle to number blue holds in order, and a Match/No-match setting |
+| Edit route | `app/edit-route.tsx` | Modify holds, name, grade, and Match setting on an existing route |
+| Playlist detail | `app/playlist/[id].tsx` | Routes in a playlist with drag-to-reorder and swipe-to-remove. Owner-only settings gear for visibility and public-access controls |
+| Verify routes | `app/verify-routes.tsx` | Bulk-review routes after a new board photo; the first route auto-selects, drag hold dots to correct misaligned positions, and a "Next route" button steps through the rest |
+| Update board photo | `app/update-board-photo.tsx` | Replace the photo for the current board. The back button, swipe gesture, and Android back button all return to the camera to retake (or exit cleanly if no photo was captured yet) |
 | Profile | `app/(tabs)/profile.tsx` | User settings, board management, playlists, stats |
 
 ---
@@ -85,6 +95,7 @@ home-board/
 │   ├── HoldOverlay.tsx      # Hold dot rendering and colour/size constants
 │   ├── LoginScreen.tsx      # Magic-code login flow
 │   ├── OnboardingModal.tsx  # First-run onboarding
+│   ├── PlaylistCard.tsx     # Playlist list item card
 │   └── RouteCard.tsx        # Route list item card
 ├── contexts/
 │   └── ThemeContext.tsx     # Dark/light mode state, persisted via AsyncStorage
@@ -125,14 +136,25 @@ $users ──selectedBoard──> boards ──routes──> routes
 |--------|-----------|
 | `$users` | `email`, `username` (unique, indexed) |
 | `boards` | `name` (unique), `country`, `description`, `createdAt` |
-| `routes` | `name`, `grade`, `holds` (JSON string of dot positions), `createdAt` |
+| `routes` | `name`, `grade`, `holds` (JSON string of dot positions, optionally with a `sequence` number on blue holds), `allowMatch` (optional bool, defaults to `true`), `createdAt` |
 | `ascents` | `attempts`, `loggedAt` |
-| `playlists` | `name`, `routeOrder` (JSON array of route IDs for manual ordering) |
+| `playlists` | `name`, `routeOrder` (JSON array of route IDs for manual ordering), `visibility` (`"private"` \| `"public"`, default private), `publicAccess` (`"view"` \| `"edit"`, only meaningful when public) |
 | `comments` | `text`, `createdAt` |
 | `likes` | `createdAt` |
 | `$files` | `path`, `url` — used for board photos via Instant Storage |
 
 All data syncs in real-time to every connected client automatically.
+
+### Permissions
+
+Access rules are defined in [`instant.perms.ts`](instant.perms.ts) and enforced server-side by InstantDB on every read and write.
+
+For `playlists`:
+- **View** — allowed if you're the owner, or if the playlist is `public`.
+- **Update** — the owner can change anything; a non-owner can only update a `public` playlist with `publicAccess: "edit"`, and only the `routes` / `routeOrder` fields (an allowlist) — renaming or changing visibility/access stays owner-only.
+- **Delete** — owner only.
+
+Adding or removing a route from a playlist is a link mutation, so InstantDB checks the `update` permission on **both** `playlists` and `routes`. The `routes` rules allow a non-creator to modify a route only via its link fields (`playlists`, `ascents`, `likes`, `comments`) — never the route's own content (name, grade, holds), which stays creator-only.
 
 ### Authentication
 

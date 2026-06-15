@@ -85,7 +85,7 @@ export default function UsernamePromptModal() {
             Choose a username
           </Text>
           <Text style={{ fontSize: 14, color: "#6b7280", lineHeight: 20, marginBottom: 20, textAlign: "center" }}>
-            Other climbers will see this on routes you set. We've picked one for you, but feel free to change it.
+            Other climbers will see this on routes you set. We&apos;ve picked one for you, but feel free to change it.
           </Text>
 
           <View style={{ flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 12, paddingHorizontal: 14, marginBottom: 8, backgroundColor: "#f9fafb" }}>

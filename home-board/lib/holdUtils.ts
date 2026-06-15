@@ -14,6 +14,7 @@ export interface Hold {
   y: number;
   color: HoldColor;
   size?: HoldSize;
+  sequence?: number;
 }
 
 export function computeContainArea(

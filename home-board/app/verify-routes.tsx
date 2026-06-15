@@ -10,7 +10,7 @@ import { gradeBadgeColor } from "@/lib/grades";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { router, useLocalSearchParams } from "expo-router";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -18,8 +18,15 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
+  useColorScheme,
   View,
 } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -54,12 +61,96 @@ function computeContain(
   }
 }
 
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+// ── DraggableHold ────────────────────────────────────────────────────────────
+//
+// Renders a single hold dot positioned from its normalised (0–1) coordinates.
+// Dragging the dot reports the new normalised position via onDragEnd, computed
+// by inverting the same `computeContain` letterbox rect used to place it.
+
+function DraggableHold({
+  hold,
+  area,
+  onDragEnd,
+}: {
+  hold: Hold;
+  area: ContainArea;
+  onDragEnd: (holdId: string, x: number, y: number) => void;
+}) {
+  const dotSize = HOLD_SIZES[hold.size ?? "medium"];
+  const solidColor = HOLD_COLORS[hold.color];
+  const hitSize = dotSize + 16;
+
+  const baseLeft = area.offsetX + hold.x * area.displayW - hitSize / 2;
+  const baseTop = area.offsetY + hold.y * area.displayH - hitSize / 2;
+
+  const translateX = useSharedValue(0);
+  const translateY = useSharedValue(0);
+
+  function handleDragEnd(translationX: number, translationY: number) {
+    const pixelX = area.offsetX + hold.x * area.displayW + translationX;
+    const pixelY = area.offsetY + hold.y * area.displayH + translationY;
+    const nextX = clamp01((pixelX - area.offsetX) / area.displayW);
+    const nextY = clamp01((pixelY - area.offsetY) / area.displayH);
+    translateX.value = 0;
+    translateY.value = 0;
+    onDragEnd(hold.id, nextX, nextY);
+  }
+
+  const pan = Gesture.Pan()
+    .onUpdate((e) => {
+      translateX.value = e.translationX;
+      translateY.value = e.translationY;
+    })
+    .onEnd((e) => {
+      runOnJS(handleDragEnd)(e.translationX, e.translationY);
+    });
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }, { translateY: translateY.value }],
+  }));
+
+  return (
+    <GestureDetector gesture={pan}>
+      <Animated.View
+        style={[
+          {
+            position: "absolute",
+            width: hitSize,
+            height: hitSize,
+            left: baseLeft,
+            top: baseTop,
+            alignItems: "center",
+            justifyContent: "center",
+          },
+          animatedStyle,
+        ]}
+      >
+        <View
+          style={{
+            width: dotSize,
+            height: dotSize,
+            borderRadius: dotSize / 2,
+            backgroundColor: colorWithAlpha(solidColor, 0.2),
+            borderWidth: 3,
+            borderColor: solidColor,
+          }}
+        />
+      </Animated.View>
+    </GestureDetector>
+  );
+}
+
 // ── Screen ────────────────────────────────────────────────────────────────────
 
 export default function VerifyRoutesScreen() {
   const { boardId: boardIdParam } = useLocalSearchParams<{ boardId: string }>();
   const boardId = Array.isArray(boardIdParam) ? boardIdParam[0] : boardIdParam;
   const insets = useSafeAreaInsets();
+  const isDark = useColorScheme() === "dark";
 
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   // routeId → current Hold[] (only populated when holds are modified)
@@ -91,16 +182,54 @@ export default function VerifyRoutesScreen() {
     return modifiedHolds[route.id] ?? parseHolds(route.holds);
   }
 
-  function removeHold(routeId: string, holdId: string, currentHolds: Hold[]) {
+  function updateHoldPosition(routeId: string, holdId: string, currentHolds: Hold[], x: number, y: number) {
     setModifiedHolds((prev) => ({
       ...prev,
-      [routeId]: currentHolds.filter((h) => h.id !== holdId),
+      [routeId]: currentHolds.map((h) => (h.id === holdId ? { ...h, x, y } : h)),
     }));
   }
 
   const [reviewedIds, setReviewedIds] = useState<Set<string>>(new Set());
+  const [lastRouteIndex, setLastRouteIndex] = useState(-1);
+  const autoSelectedRef = useRef(false);
 
   const uncheckedCount = routes.length - reviewedIds.size;
+
+  function selectRoute(routeId: string, index: number) {
+    const isSelected = routeId === selectedRouteId;
+    setSelectedRouteId(isSelected ? null : routeId);
+    if (!isSelected) {
+      setReviewedIds((prev) => new Set(prev).add(routeId));
+      setLastRouteIndex(index);
+    }
+  }
+
+  function selectNextRoute() {
+    if (routes.length === 0) return;
+    const nextIndex = (lastRouteIndex + 1) % routes.length;
+    const nextRoute = routes[nextIndex];
+    setSelectedRouteId(nextRoute.id);
+    setReviewedIds((prev) => new Set(prev).add(nextRoute.id));
+    setLastRouteIndex(nextIndex);
+  }
+
+  // Auto-select the first route on entering the screen, same as "Next route".
+  useEffect(() => {
+    if (autoSelectedRef.current || routes.length === 0) return;
+    autoSelectedRef.current = true;
+    const firstRoute = routes[0];
+    setSelectedRouteId(firstRoute.id);
+    setReviewedIds((prev) => new Set(prev).add(firstRoute.id));
+    setLastRouteIndex(0);
+  }, [routes]);
+
+  function goBackToCamera() {
+    if (!boardId) {
+      router.back();
+      return;
+    }
+    router.replace({ pathname: "/update-board-photo", params: { boardId } });
+  }
 
   async function save() {
     if (uncheckedCount > 0) {
@@ -188,80 +317,58 @@ export default function VerifyRoutesScreen() {
           }}
         />
 
-        {/* Hold dots for selected route — tappable to remove */}
+        {/* Hold dots for selected route — drag to correct position */}
         {selectedRoute &&
-          selectedHolds.map((hold: Hold) => {
-            const dotSize = HOLD_SIZES[hold.size ?? "medium"];
-            const solidColor = HOLD_COLORS[hold.color];
-            const hitSize = dotSize + 16;
-            return (
-              <TouchableOpacity
-                key={hold.id}
-                onPress={() =>
-                  removeHold(selectedRoute.id, hold.id, selectedHolds)
-                }
-                style={{
-                  position: "absolute",
-                  width: hitSize,
-                  height: hitSize,
-                  left:
-                    area.offsetX + hold.x * area.displayW - hitSize / 2,
-                  top:
-                    area.offsetY + hold.y * area.displayH - hitSize / 2,
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <View
-                  style={{
-                    width: dotSize,
-                    height: dotSize,
-                    borderRadius: dotSize / 2,
-                    backgroundColor: colorWithAlpha(solidColor, 0.2),
-                    borderWidth: 3,
-                    borderColor: solidColor,
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <Ionicons
-                    name="close"
-                    size={Math.max(10, Math.floor(dotSize * 0.45))}
-                    color={solidColor}
-                  />
-                </View>
-              </TouchableOpacity>
-            );
-          })}
+          selectedHolds.map((hold: Hold) => (
+            <DraggableHold
+              key={hold.id}
+              hold={hold}
+              area={area}
+              onDragEnd={(holdId, x, y) =>
+                updateHoldPosition(selectedRoute.id, holdId, selectedHolds, x, y)
+              }
+            />
+          ))}
 
         {/* Top overlay bar */}
         <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.pill}>
-            <Ionicons name="chevron-back" size={16} color="#fff" />
-            <Text style={styles.pillText}>Skip</Text>
-          </TouchableOpacity>
+          <View style={styles.topBarRow}>
+            <TouchableOpacity onPress={goBackToCamera} style={styles.pill}>
+              <Ionicons name="chevron-back" size={16} color="#fff" />
+              <Text style={styles.pillText}>Back</Text>
+            </TouchableOpacity>
 
-          <View style={styles.pill}>
-            <Text style={styles.pillText}>
-              {selectedRoute
-                ? "Tap a hold to remove it"
-                : "Select a route below"}
-            </Text>
+            <TouchableOpacity
+              onPress={selectNextRoute}
+              disabled={routes.length === 0}
+              style={[styles.pill, routes.length === 0 && { opacity: 0.4 }]}
+            >
+              <Text style={[styles.pillText, { fontWeight: "700" }]}>Next route</Text>
+              <Ionicons name="arrow-forward" size={14} color="#fff" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={save}
+              disabled={saving}
+              style={[styles.pill, { backgroundColor: "#6366f1" }]}
+            >
+              {saving ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={[styles.pillText, { fontWeight: "700" }]}>
+                  {modifiedCount > 0 ? `Save (${modifiedCount})` : "Done"}
+                </Text>
+              )}
+            </TouchableOpacity>
           </View>
 
-          <TouchableOpacity
-            onPress={save}
-            disabled={saving}
-            style={[styles.pill, { backgroundColor: "#6366f1" }]}
-          >
-            {saving ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Text style={[styles.pillText, { fontWeight: "700" }]}>
-                {modifiedCount > 0 ? `Save (${modifiedCount})` : "Done"}
-              </Text>
-            )}
-          </TouchableOpacity>
+          {selectedRoute && (
+            <View style={styles.instructionRow}>
+              <View style={styles.pill}>
+                <Text style={styles.pillText}>Correct a dot by dragging it</Text>
+              </View>
+            </View>
+          )}
         </View>
       </View>
 
@@ -269,11 +376,15 @@ export default function VerifyRoutesScreen() {
       <View
         style={[
           styles.routePanel,
-          { paddingBottom: Math.max(insets.bottom, 8) },
+          {
+            backgroundColor: isDark ? "#1f2937" : "#fff",
+            borderTopColor: isDark ? "#374151" : "#f3f4f6",
+            paddingBottom: Math.max(insets.bottom, 8),
+          },
         ]}
       >
-        <View style={styles.routePanelHeader}>
-          <Text style={styles.panelTitle}>
+        <View style={[styles.routePanelHeader, { borderBottomColor: isDark ? "#374151" : "#f3f4f6" }]}>
+          <Text style={[styles.panelTitle, { color: isDark ? "#f3f4f6" : "#111827" }]}>
             {routes.length} route{routes.length !== 1 ? "s" : ""} on this board
           </Text>
           <Text style={styles.panelSub}>
@@ -299,7 +410,7 @@ export default function VerifyRoutesScreen() {
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 8 }}
           >
-            {routes.map((route: any) => {
+            {routes.map((route: any, index: number) => {
               const isSelected = route.id === selectedRouteId;
               const isModified = !!modifiedHolds[route.id];
               const holds = getHolds(route);
@@ -308,13 +419,17 @@ export default function VerifyRoutesScreen() {
               return (
                 <TouchableOpacity
                   key={route.id}
-                  onPress={() => {
-                    setSelectedRouteId(isSelected ? null : route.id);
-                    if (!isSelected) setReviewedIds((prev) => new Set(prev).add(route.id));
-                  }}
+                  onPress={() => selectRoute(route.id, index)}
                   style={[
                     styles.routeCard,
-                    isSelected && styles.routeCardActive,
+                    { borderBottomColor: isDark ? "#374151" : "#f3f4f6" },
+                    isSelected && {
+                      backgroundColor: isDark ? "rgba(99,102,241,0.18)" : "#eef2ff",
+                      borderRadius: 10,
+                      marginHorizontal: -4,
+                      paddingHorizontal: 4,
+                      borderBottomColor: "transparent",
+                    },
                   ]}
                   activeOpacity={0.7}
                 >
@@ -331,6 +446,7 @@ export default function VerifyRoutesScreen() {
                     <Text
                       style={[
                         styles.routeName,
+                        { color: isDark ? "#f3f4f6" : "#111827" },
                         isSelected && { color: "#6366f1" },
                       ]}
                       numberOfLines={1}
@@ -343,7 +459,7 @@ export default function VerifyRoutesScreen() {
                   </View>
 
                   {isModified && (
-                    <View style={styles.editedBadge}>
+                    <View style={[styles.editedBadge, isDark && { backgroundColor: "rgba(217,119,6,0.25)" }]}>
                       <Text style={styles.editedText}>Edited</Text>
                     </View>
                   )}
@@ -354,7 +470,7 @@ export default function VerifyRoutesScreen() {
                   <Ionicons
                     name={isSelected ? "chevron-down" : "chevron-forward"}
                     size={16}
-                    color={isSelected ? "#6366f1" : "#d1d5db"}
+                    color={isSelected ? "#6366f1" : isDark ? "#6b7280" : "#d1d5db"}
                   />
                 </TouchableOpacity>
               );
@@ -374,12 +490,21 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
     paddingHorizontal: 12,
     paddingBottom: 8,
     gap: 8,
+  },
+  topBarRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  instructionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 8,
   },
   pill: {
     flexDirection: "row",
@@ -415,13 +540,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#f3f4f6",
     gap: 10,
-  },
-  routeCardActive: {
-    backgroundColor: "#eef2ff",
-    borderRadius: 10,
-    marginHorizontal: -4,
-    paddingHorizontal: 4,
-    borderBottomColor: "transparent",
   },
   gradeBadge: {
     borderRadius: 6,

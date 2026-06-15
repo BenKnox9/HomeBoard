@@ -5,11 +5,12 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import * as Linking from "expo-linking";
-import { router, useLocalSearchParams } from "expo-router";
-import { useRef, useState } from "react";
+import { Stack, router, useLocalSearchParams } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -31,7 +32,16 @@ export default function UpdateBoardPhotoScreen() {
   const [capturedUri, setCapturedUri] = useState<string | null>(null);
   const [capturedDimensions, setCapturedDimensions] = useState<{ width?: number; height?: number }>({});
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [cameraKey, setCameraKey] = useState(0);
   const cameraRef = useRef<CameraView>(null);
+  // Tracks a $files record that's been uploaded but not yet linked to the
+  // board, so a failed link transact can be retried without re-uploading,
+  // and abandoned uploads can be deleted to avoid orphaning storage.
+  const pendingUploadRef = useRef<{ uri: string; fileId: string } | null>(null);
+  // Synchronous guard against double-tap races — React state (`uploading`)
+  // doesn't update until the next render, so a fast double-tap can otherwise
+  // start two concurrent uploads before either is reflected in the UI.
+  const inFlightRef = useRef(false);
 
   const { data } = db.useQuery(
     boardId
@@ -49,18 +59,28 @@ export default function UpdateBoardPhotoScreen() {
   }
 
   async function doUpload(photoUri: string, width?: number, height?: number) {
-    if (!boardId) return;
+    if (!boardId || inFlightRef.current) return;
+    inFlightRef.current = true;
     setUploading(true);
     setUploadError(null);
     try {
-      const prepared = await prepareImage({ uri: photoUri, width, height });
-      const filename = `board_${Date.now()}.jpg`;
-      const result = await db.storage.uploadFile(
-        `boards/${boardId}/${filename}`,
-        { uri: prepared.uri, name: filename, type: prepared.mimeType } as any
-      );
-      const fileId = result.data?.id;
-      if (!fileId) throw new Error("Upload failed — please try again.");
+      let fileId: string;
+      if (pendingUploadRef.current?.uri === photoUri) {
+        // Already uploaded on a previous attempt for this exact photo —
+        // reuse it instead of uploading another copy.
+        fileId = pendingUploadRef.current.fileId;
+      } else {
+        const prepared = await prepareImage({ uri: photoUri, width, height });
+        const filename = `board_${Date.now()}.jpg`;
+        const result = await db.storage.uploadFile(
+          `boards/${boardId}/${filename}`,
+          { uri: prepared.uri, name: filename, type: prepared.mimeType } as any
+        );
+        const uploadedId = result.data?.id;
+        if (!uploadedId) throw new Error("Upload failed — please try again.");
+        fileId = uploadedId;
+        pendingUploadRef.current = { uri: photoUri, fileId };
+      }
 
       // Unlink and delete old photo before linking new one
       const txs: any[] = [db.tx.boards[boardId].link({ photo: fileId })];
@@ -68,6 +88,7 @@ export default function UpdateBoardPhotoScreen() {
         txs.push(db.tx.$files[oldPhotoId].delete());
       }
       await db.transact(txs);
+      pendingUploadRef.current = null;
 
       if (hasRoutes) {
         router.replace({ pathname: "/verify-routes", params: { boardId } });
@@ -78,6 +99,7 @@ export default function UpdateBoardPhotoScreen() {
       setUploadError(e.message ?? "Upload failed. Please try again.");
     } finally {
       setUploading(false);
+      inFlightRef.current = false;
     }
   }
 
@@ -94,8 +116,12 @@ export default function UpdateBoardPhotoScreen() {
   }
 
   async function retry() {
-    if (!capturedUri) return;
-    await doUpload(capturedUri, capturedDimensions.width, capturedDimensions.height);
+    // For a library pick, capturedUri is never set, but pendingUploadRef
+    // still holds the uri/fileId of the failed attempt — reuse that so
+    // retry doesn't dead-end after a library-pick failure.
+    const uri = capturedUri ?? pendingUploadRef.current?.uri;
+    if (!uri) return;
+    await doUpload(uri, capturedDimensions.width, capturedDimensions.height);
   }
 
   async function pickFromLibrary() {
@@ -110,12 +136,53 @@ export default function UpdateBoardPhotoScreen() {
     }
   }
 
-  async function handleBack() {
+  const handleBack = useCallback(async function handleBack() {
+    // If a previous attempt uploaded a file that was never linked (e.g. the
+    // link transact failed), delete it now rather than abandoning it.
+    const pending = pendingUploadRef.current;
+    if (pending) {
+      if (pending.fileId === oldPhotoId) {
+        // The link transact for this file may have actually applied
+        // server-side even though it threw (e.g. the ack was lost) — this
+        // fileId is now the board's live photo. Don't delete it, just drop
+        // our stale reference.
+        pendingUploadRef.current = null;
+      } else {
+        try {
+          await db.transact([db.tx.$files[pending.fileId].delete()]);
+          pendingUploadRef.current = null;
+        } catch (e: any) {
+          Alert.alert(
+            "Error",
+            e.message ?? "Failed to clean up the uploaded photo. Please check your connection and try again."
+          );
+          return;
+        }
+      }
+    }
+    if (capturedUri) {
+      setCapturedUri(null);
+      setCapturedDimensions({});
+      setUploadError(null);
+      setCameraKey((k) => k + 1);
+      return;
+    }
     if (isNew && boardId) {
       await db.transact([db.tx.boards[boardId].delete()]);
     }
     router.back();
-  }
+  }, [oldPhotoId, capturedUri, isNew, boardId]);
+
+  // Android hardware back must route through handleBack() too — otherwise it
+  // pops the screen directly and skips the pendingUploadRef cleanup above.
+  useEffect(() => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (uploading) return true;
+      handleBack();
+      return true;
+    });
+    return () => sub.remove();
+  }, [handleBack, uploading]);
 
   // ── Permission states ─────────────────────────────────────────────────────
 
@@ -154,7 +221,8 @@ export default function UpdateBoardPhotoScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: "#000" }}>
-      <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" />
+      <Stack.Screen options={{ gestureEnabled: false }} />
+      <CameraView key={cameraKey} ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" />
 
       {ghostUrl && ghostOpacity > 0 && (
         <Image
@@ -203,7 +271,7 @@ export default function UpdateBoardPhotoScreen() {
         {uploadError ? (
           <>
             <Text style={[styles.hint, { color: "#fca5a5" }]}>{uploadError}</Text>
-            <TouchableOpacity onPress={retry} style={styles.retryBtn} activeOpacity={0.75}>
+            <TouchableOpacity onPress={retry} disabled={uploading} style={styles.retryBtn} activeOpacity={0.75}>
               <Ionicons name="refresh" size={20} color="#6366f1" />
               <Text style={styles.retryBtnText}>Try again</Text>
             </TouchableOpacity>

@@ -41,8 +41,11 @@ const _schema = i.schema({
       createdAt: i.number().indexed(),
       name: i.string().indexed(),
       routeOrder: i.string().optional(),
+      visibility: i.string().optional(),
+      publicAccess: i.string().optional(),
     }),
     routes: i.entity({
+      allowMatch: i.boolean().optional(),
       createdAt: i.number().indexed(),
       description: i.string().optional(),
       grade: i.string().indexed(),

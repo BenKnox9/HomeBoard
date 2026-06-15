@@ -45,13 +45,17 @@ function parseHolds(raw: string | undefined): Hold[] {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      Alert.alert("Hold data error", "This route's hold data is corrupted and cannot be displayed.");
-      return [];
-    }
-    return parsed;
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
-    Alert.alert("Hold data error", "This route's hold data is corrupted and cannot be displayed.");
+    return [];
+  }
+}
+
+function parseRouteOrder(raw: string | undefined | null): string[] {
+  try {
+    const arr = JSON.parse(raw ?? "[]");
+    return Array.isArray(arr) ? arr : [];
+  } catch {
     return [];
   }
 }
@@ -69,6 +73,7 @@ function RouteInfoBar({
   const hasAscended = myAscents.length > 0;
   const safeGrade = GRADES.includes(route.grade) ? route.grade : "V0";
   const badgeColor = gradeBadgeColor(safeGrade);
+  const allowMatch = route.allowMatch ?? true;
   const creator = route.creator;
   const creatorLabel = creator?.username
     ? `@${creator.username}`
@@ -80,6 +85,14 @@ function RouteInfoBar({
     <View style={styles.infoBar}>
       <View style={[styles.gradeBadge, { backgroundColor: badgeColor }]}>
         <Text style={styles.gradeText}>{safeGrade}</Text>
+      </View>
+      <View style={styles.matchBadge}>
+        <Ionicons
+          name={allowMatch ? "people-outline" : "person-outline"}
+          size={12}
+          color="rgba(255,255,255,0.7)"
+        />
+        <Text style={styles.matchBadgeText}>{allowMatch ? "Match" : "No-match"}</Text>
       </View>
       <View style={{ flex: 1 }}>
         <Text style={styles.routeName} numberOfLines={1}>
@@ -333,7 +346,10 @@ export default function RouteDetailScreen() {
         if (finished) runOnJS(switchToRoute)(targetId);
       });
     },
-    [nextId, prevId, displayedId, switchToRoute, outgoingX, incomingX]
+    // currentLayerOpacity is a SharedValue — its identity is stable across
+    // renders, like outgoingX/incomingX above, so listing it doesn't
+    // recreate this callback mid-interaction.
+    [nextId, prevId, displayedId, switchToRoute, outgoingX, incomingX, currentLayerOpacity]
   );
 
   const pinch = Gesture.Pinch()
@@ -414,19 +430,48 @@ export default function RouteDetailScreen() {
             position: "absolute",
             width: dotSize,
             height: dotSize,
-            borderRadius: dotSize / 2,
-            backgroundColor: transparent ? "transparent" : colorWithAlpha(solidColor, 0.15),
-            borderWidth: 3,
-            borderColor: transparent ? colorWithAlpha(solidColor, 0.55) : solidColor,
             left: area.offsetX + hold.x * area.displayW - dotSize / 2,
             top: area.offsetY + hold.y * area.displayH - dotSize / 2,
-            shadowColor: "#000",
-            shadowOffset: { width: 0, height: 1 },
-            shadowOpacity: transparent ? 0 : 0.5,
-            shadowRadius: 3,
-            elevation: transparent ? 0 : 4,
           }}
-        />
+        >
+          <View
+            style={{
+              width: dotSize,
+              height: dotSize,
+              borderRadius: dotSize / 2,
+              backgroundColor: transparent ? "transparent" : colorWithAlpha(solidColor, 0.15),
+              borderWidth: 3,
+              borderColor: transparent ? colorWithAlpha(solidColor, 0.55) : solidColor,
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: 1 },
+              shadowOpacity: transparent ? 0 : 0.5,
+              shadowRadius: 3,
+              elevation: transparent ? 0 : 4,
+            }}
+          />
+          {!transparent && hold.color === "blue" && hold.sequence !== undefined && (
+            <View
+              style={{
+                position: "absolute",
+                top: -6,
+                right: -6,
+                minWidth: 18,
+                height: 18,
+                borderRadius: 9,
+                paddingHorizontal: 3,
+                backgroundColor: "#fff",
+                borderWidth: 1.5,
+                borderColor: solidColor,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Text style={{ color: solidColor, fontSize: 10, fontWeight: "700" }}>
+                {hold.sequence}
+              </Text>
+            </View>
+          )}
+        </View>
       );
     });
   }
@@ -932,7 +977,28 @@ export default function RouteDetailScreen() {
                                 for (const a of currentRoute.ascents ?? []) txs.push(db.tx.ascents[a.id].delete());
                                 for (const c of currentRoute.comments ?? []) txs.push(db.tx.comments[c.id].delete());
                                 for (const l of currentRoute.likes ?? []) txs.push(db.tx.likes[l.id].delete());
-                                for (const pl of (currentRoute as any).playlists ?? []) txs.push(db.tx.playlists[pl.id].unlink({ routes: currentRoute.id }));
+                                const ownPlaylistIds = new Set(userPlaylists.map((p: any) => p.id));
+                                for (const pl of (currentRoute as any).playlists ?? []) {
+                                  const canModify =
+                                    ownPlaylistIds.has(pl.id) ||
+                                    (pl.visibility === "public" && pl.publicAccess === "edit");
+                                  if (canModify) {
+                                    // Only playlists we can update can also have their
+                                    // routeOrder cleaned — for playlists we can't modify,
+                                    // routes[...].delete() below still removes the link
+                                    // (cascades regardless of the playlist side's update
+                                    // permission), but routeOrder keeps a stale id, which
+                                    // sortByOrder already tolerates.
+                                    const order = parseRouteOrder(pl.routeOrder).filter(
+                                      (rid: string) => rid !== currentRoute.id
+                                    );
+                                    txs.push(
+                                      db.tx.playlists[pl.id]
+                                        .unlink({ routes: currentRoute.id })
+                                        .update({ routeOrder: JSON.stringify(order) })
+                                    );
+                                  }
+                                }
                                 txs.push(db.tx.routes[currentRoute.id].delete());
                                 await db.transact(txs);
                                 router.back();
@@ -1183,6 +1249,17 @@ const styles = StyleSheet.create({
   },
   gradeText: { color: "#fff", fontWeight: "700", fontSize: 13 },
   routeName: { color: "#fff", fontWeight: "600", fontSize: 16 },
+  matchBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginRight: 10,
+  },
+  matchBadgeText: { color: "rgba(255,255,255,0.7)", fontSize: 11, fontWeight: "600" },
 
   fixedBar: {
     backgroundColor: "rgba(0,0,0,0.88)",
